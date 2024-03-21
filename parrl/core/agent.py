@@ -24,7 +24,7 @@ class Agent(nn.Module):
         raise NotImplementedError()
     
     def load_state(self, state_path_or_dict: str | dict[str, Tensor]) -> None:
-        if isinstance(str, state_path_or_dict):
+        if isinstance(state_path_or_dict, str):
             state_dict = load(state_path_or_dict, map_location='cpu')
         else:
             state_dict = state_path_or_dict
