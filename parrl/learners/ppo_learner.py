@@ -116,8 +116,6 @@ class PPOLearner(Learner):
         self.experiment_name = experiment_name
         self.do_logging = project_name is not None and experiment_name is not \
             None
-        if self.do_logging:
-            wandb.init(project=project_name, name=experiment_name)
     
     def learn(self) -> dict[str, Any]:
         """
