@@ -128,6 +128,7 @@ class PPOLearner(Learner):
            ReplayBuffer for `train_episodes_per_iteration` number of episodes.
         """
         # Update gatherers for online experience gathering
+        import pdb; pdb.set_trace()
         self._update_remote_parameters()
         # Gather experience
         results = []
@@ -153,7 +154,7 @@ class PPOLearner(Learner):
             self._log_stats(stats)
         
     def _update_remote_parameters(self) -> None:
-        state_dict = self.agent.state_dict()
+        state_dict = {k: v.cpu() for k, v in self.agent.state_dict().items()}
         for gatherer in self.gatherers:
             gatherer.update_parameters.remote(state_dict)
     
