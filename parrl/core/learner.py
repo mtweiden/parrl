@@ -7,6 +7,7 @@ from gymnasium import Env
 
 from torch import save
 from torch import Tensor
+from torch import cuda
 
 from parrl.core.agent import Agent
 from parrl.core.buffer import ReplayBuffer
@@ -69,6 +70,13 @@ class Learner(ABC):
             ]
         """
     
+    @property
+    def device(self) -> str:
+        if cuda.is_available():
+            return "cuda"
+        else:
+            return "cpu"
+
     @abstractmethod
     def learn(self) -> None:
         """

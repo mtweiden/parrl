@@ -139,7 +139,7 @@ class PPOLearner(Learner):
         data = [f['data'] for f in futures]
         self._prepare_buffer(data)
         # Learn from gathered experience
-        self.agent = self.agent.train()
+        self.agent = self.agent.train().to(self.device)
         for episode in range(self.train_episodes_per_iteration):
             dataloader = self._prepare_dataloader()
             for batch in dataloader:
