@@ -3,7 +3,9 @@ from typing import Sequence
 
 from collections import deque
 
+from numpy import copy
 from numpy import stack
+from numpy import ndarray
 
 from random import sample as random_sample
 from random import seed as random_seed
@@ -42,7 +44,13 @@ class ReplayBuffer:
 
     def add_experience(self, experience: Sequence[Any]) -> None:
         for transition in experience:
-            self.add(*transition)
+            modified_transition = []
+            # PyTorch wants writable arrays
+            for x in transition:
+                if isinstance(x, ndarray):
+                    x = copy(x)
+                modified_transition.append(x)
+            self.add(*tuple(modified_transition))
 
     def add(self, *args) -> None:
         self.buffer.append(args)

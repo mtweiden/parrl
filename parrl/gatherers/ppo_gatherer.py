@@ -100,7 +100,6 @@ class PPOGatherer(Gatherer):
 
             entropy = action_dist.entropy().item()
 
-            state.setflags(write=1)
             states.append(state)
             actions.append(ac)
             logps.append(log_p)
