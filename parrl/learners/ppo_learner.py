@@ -128,7 +128,6 @@ class PPOLearner(Learner):
            ReplayBuffer for `train_episodes_per_iteration` number of episodes.
         """
         # Update gatherers for online experience gathering
-        import pdb; pdb.set_trace()
         self._update_remote_parameters()
         # Gather experience
         results = []
