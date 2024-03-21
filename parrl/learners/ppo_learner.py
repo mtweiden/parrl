@@ -153,9 +153,10 @@ class PPOLearner(Learner):
                     wandb.log(
                         {'actor_loss': actor_loss, 'critic_loss': critic_loss}
                     )
+        stats = self._format_stats(stats)
         # Record statistics
         if self.do_logging:
-            self._log_stats(stats)
+            wandb.log(stats)
         self.iteration += 1
         return stats
         
@@ -215,7 +216,7 @@ class PPOLearner(Learner):
 
         return actor_loss.item(), critic_loss.item()
     
-    def _log_stats(
+    def _format_stats(
         self,
         stats: list[dict[str, float | Sequence[float]]],
     ) -> None:
@@ -239,8 +240,7 @@ class PPOLearner(Learner):
                     combined_stats[stat_name].append(gatherer_stats[stat_name])
         combined_stats = {k: sum(v) / len(v) for k, v in combined_stats.items()}
         combined_stats['iteration'] = self.iteration
-        # Log to wandb
-        wandb.log(combined_stats)
+        return combined_stats
     
     def _actor_loss(
         self,
