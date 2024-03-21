@@ -69,6 +69,10 @@ class Learner(ABC):
             return "cuda"
         else:
             return "cpu"
+    
+    def update_gatherer_env_attributes(self, kwargs: dict[str, Any]) -> None:
+        for gatherer in self.gatherers:
+            gatherer.update_env_attributes.remote(kwargs)
 
     @abstractmethod
     def learn(self) -> dict[str, Any]:
