@@ -1,3 +1,4 @@
+from typing import Any
 from typing import Optional
 from typing import Sequence
 
@@ -118,7 +119,7 @@ class PPOLearner(Learner):
         if self.do_logging:
             wandb.init(project=project_name, name=experiment_name)
     
-    def learn(self) -> None:
+    def learn(self) -> dict[str, Any]:
         """
         Run one iteration of PPO learning with parallel gatherers.
 
@@ -127,6 +128,9 @@ class PPOLearner(Learner):
         2. Gather (on-policy) experience from each gatherer in parallel.
         3. Update the agent with the gathered experience which is stored in the
            ReplayBuffer for `train_episodes_per_iteration` number of episodes.
+        
+        Returns:
+            (dict[str, Any]): A dict of training statistics.
         """
         # Update gatherers for online experience gathering
         self._update_remote_parameters()
@@ -153,6 +157,7 @@ class PPOLearner(Learner):
         if self.do_logging:
             self._log_stats(stats)
         self.iteration += 1
+        return stats
         
     def _update_remote_parameters(self) -> None:
         state_dict = {k: v.cpu() for k, v in self.agent.state_dict().items()}
