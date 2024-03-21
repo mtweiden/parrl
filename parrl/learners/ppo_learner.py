@@ -230,6 +230,7 @@ class PPOLearner(Learner):
                     combined_stats[stat_name].extend(new_stats)
                 else:
                     combined_stats[stat_name].append(gatherer_stats[stat_name])
+        combined_stats = {k: sum(v) / len(v) for k, v in combined_stats.items()}
         # Log to wandb
         wandb.log(combined_stats)
     
