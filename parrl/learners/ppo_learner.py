@@ -110,6 +110,7 @@ class PPOLearner(Learner):
             ),
         }
 
+        self.iteration = 0
         self.project_name = project_name
         self.experiment_name = experiment_name
         self.do_logging = project_name is not None and experiment_name is not \
@@ -151,6 +152,7 @@ class PPOLearner(Learner):
         # Record statistics
         if self.do_logging:
             self._log_stats(stats)
+        self.iteration += 1
         
     def _update_remote_parameters(self) -> None:
         state_dict = {k: v.cpu() for k, v in self.agent.state_dict().items()}
@@ -231,6 +233,7 @@ class PPOLearner(Learner):
                 else:
                     combined_stats[stat_name].append(gatherer_stats[stat_name])
         combined_stats = {k: sum(v) / len(v) for k, v in combined_stats.items()}
+        combined_stats['iteration'] = self.iteration
         # Log to wandb
         wandb.log(combined_stats)
     
