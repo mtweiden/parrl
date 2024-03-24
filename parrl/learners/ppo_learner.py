@@ -100,7 +100,7 @@ class PPOLearner(Learner):
             self.learning_rates = (learning_rate,)
         else:
             self.learning_rates = tuple(learning_rate)
-        self.optimzers = {
+        self.optimizers = {
             'actor': AdamW(
                 self.agent.actor_parameters(),
                 lr=self.learning_rates[0],
@@ -198,19 +198,19 @@ class PPOLearner(Learner):
         batch = tuple(t.to(self.agent.device()).float() for t in batch)
         s, ac, logp, tarv, adv, ent = batch
 
-        self.optimzers['actor'].zero_grad()
+        self.optimizers['actor'].zero_grad()
         logits = self.agent.actor_forward(s)
         actor_loss = self._actor_loss(logits, ac, logp, adv, ent)
         actor_loss.backward()
         clip_grad_norm_(self.agent.actor_parameters(), self.gradient_clip)
-        self.optimzers['actor'].step()
+        self.optimizers['actor'].step()
 
-        self.optimzers['critic'].zero_grad()
+        self.optimizers['critic'].zero_grad()
         value = self.agent.critic_forward(s)
         critic_loss = self._critic_loss(value, tarv)
         critic_loss.backward()
         clip_grad_norm_(self.agent.critic_parameters(), self.gradient_clip)
-        self.optimzers['critic'].step()
+        self.optimizers['critic'].step()
 
         return actor_loss.item(), critic_loss.item()
     
