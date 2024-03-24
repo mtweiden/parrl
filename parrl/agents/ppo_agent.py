@@ -38,6 +38,9 @@ class PPOAgent(Agent):
     def device(self) -> str:
         return self.logit_head[0].weight.device
     
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
+        return self.agent_forward(x)
+    
     def actor_forward(self, x: Tensor) -> Tensor:
         z = self.encoder(x)
         logits = self.logit_head(z)
