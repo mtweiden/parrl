@@ -62,7 +62,7 @@ class DQNGatherer(Gatherer):
                 ac = self._agent.q_to_action(q_values)
                 ac = ac.cpu().item()
 
-            qval = q_values[ac].item()
+            qval = q_values[0, ac].item()
 
             # Take environment step
             next_state, reward, done, trunc, _ = self.env.step(ac)
