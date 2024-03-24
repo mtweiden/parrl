@@ -43,7 +43,7 @@ class DQNAgent(Agent):
         self.target = deepcopy(self.critic)
     
     def device(self) -> str:
-        return self.critic[-1].weight.device
+        return self.critic.adv_head.weight.device
     
     @no_grad
     def get_action(self, x: Tensor) -> Tensor:
@@ -82,9 +82,7 @@ class DQNAgent(Agent):
             )
             next_q_values = next_q_values.squeeze()
             reward = reward.float()
-            target_values = where(
-                done, reward, reward + self.discount * next_q_values
-            )
+            target_values = reward + (1 - done) * self.discount * next_q_values
             target_values = target_values.squeeze()
         return target_values
 
