@@ -1,6 +1,5 @@
 from typing import Any
 
-from torch import load
 from torch import nn
 from torch import no_grad
 from torch import Tensor
