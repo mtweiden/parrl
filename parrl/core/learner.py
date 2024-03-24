@@ -46,8 +46,8 @@ class Learner(ABC):
         be set depending on the RL algorithm.
 
         Args:
-            agent (Agent): An RL agent which has an `agent_forward` method and
-                a `get_action` method.
+            agent (Agent): An RL agent which has a `forward` method and a
+                `get_action` method.
             
             env (Env): An environment for the agent to interact with. This must
                 adhere to the gymnasium.Env interface.
