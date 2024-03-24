@@ -4,7 +4,6 @@ from torch import nn
 from torch import no_grad
 from torch import Tensor
 from torch import where
-from torch.distributions import Categorical
 
 from copy import deepcopy
 
@@ -24,7 +23,23 @@ class DQNAgent(Agent):
 
         # Model architecture
         self.latent_dim = latent_dim
-        self.critic = nn.Sequential(encoder, nn.Linear(latent_dim, num_outputs))
+
+        class _Critic(nn.Module):
+            def __init__(self, encoder: nn.Module) -> None:
+                super().__init__()
+                self.encoder = encoder
+                self.adv_head = nn.Linear(latent_dim, num_outputs)
+                self.val_head = nn.Linear(latent_dim, 1)
+
+            def forward(self, x: Tensor) -> Tensor:
+                z = self.encoder(x)
+                value = self.val_head(z)
+                advantages = self.adv_head(z)
+                adv_mean = advantages.mean(dim=-1, keepdim=True)
+                q_values = value + (advantages - adv_mean)
+                return q_values
+
+        self.critic = _Critic(encoder)
         self.target = deepcopy(self.critic)
     
     def device(self) -> str:
@@ -32,12 +47,9 @@ class DQNAgent(Agent):
     
     @no_grad
     def get_action(self, x: Tensor) -> Tensor:
-        if x.dim() == 3:
-            x = x.unsqueeze(dim=0)
-        logits = self.critic(x)
-        distribution = Categorical(logits=logits)
-        sample = distribution.sample()
-        return sample
+        q_values = self.critic(x)
+        action = self.q_to_action(q_values)
+        return action
     
     def critic_parameters(self) -> list[Tensor]:
         critic_params = list(self.critic.parameters())
