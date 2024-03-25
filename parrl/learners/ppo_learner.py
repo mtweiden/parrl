@@ -219,7 +219,7 @@ class PPOLearner(Learner):
         stats: list[dict[str, float | Sequence[float]]],
     ) -> None:
         """
-        Log the losses and other statistics to the wandb dashboard.
+        Format statistics for logging.
 
         Args:
             stats (list[dict[str, float | Sequence[float]]]): Statistics from

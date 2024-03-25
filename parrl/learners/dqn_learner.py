@@ -38,6 +38,7 @@ class DQNLearner(Learner):
         learning_rate: float,
         target_update_period: int,
         buffer_size: int,
+        exploration_epsilon: float,
         project_name: Optional[str] = None,
         experiment_name: Optional[str] = None,
     ) -> None:
@@ -72,6 +73,8 @@ class DQNLearner(Learner):
                 network is updated.
             
             buffer_size (int): The size of the ReplayBuffer.
+
+            exploration_epsilon (float): The epsilon value for exploration.
         """
         self.agent = agent
         self.buffer = ReplayBuffer(buffer_size)
@@ -88,8 +91,9 @@ class DQNLearner(Learner):
         )
         remote_gatherer = ray.remote(num_cpus=1)(DQNGatherer)
         self.gatherers = [
-            remote_gatherer.remote(agent, env, self.steps_per_gatherer)
-            for _ in range(num_gatherers)
+            remote_gatherer.remote(
+                agent, env, self.steps_per_gatherer, epsilon=exploration_epsilon
+            ) for _ in range(num_gatherers)
         ]
 
         self.optimizer = AdamW(
@@ -205,7 +209,7 @@ class DQNLearner(Learner):
         stats: list[dict[str, float | Sequence[float]]],
     ) -> None:
         """
-        Log the losses and other statistics to the wandb dashboard.
+        Format statistics for logging.
 
         Args:
             stats (list[dict[str, float | Sequence[float]]]): Statistics from
