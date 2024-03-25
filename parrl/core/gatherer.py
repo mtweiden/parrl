@@ -59,6 +59,14 @@ class Gatherer(ABC):
     def update_parameters(self, state_dict: dict[str, Tensor]) -> None:
         self._agent.load_state_dict(state_dict)
     
+    def update_env_attributes(self, kwargs: dict[str, Any]) -> None:
+        for attribute_name, value in kwargs.items():
+            try:
+                setattr(self.env, attribute_name, value)
+            except AttributeError:
+                m = f'Attribute {attribute_name} not found in environment.'
+                raise AttributeError(m)
+    
     @abstractmethod
     def gather(self) -> dict[str, Any]:
         """

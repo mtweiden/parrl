@@ -8,11 +8,8 @@ from numpy import ceil
 
 import ray
 
-from torch import clamp
-from torch import exp
-from torch import min
 from torch import Tensor
-from torch.distributions import Categorical
+from torch.nn import MSELoss
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
@@ -23,24 +20,25 @@ from parrl.core.buffer import ReplayBuffer
 from parrl.core.buffer import ReplayBufferDataset
 from parrl.core.learner import Learner
 
-from parrl.agents.ppo_agent import PPOAgent
-from parrl.gatherers.ppo_gatherer import PPOGatherer
+from parrl.agents.dqn_agent import DQNAgent
+from parrl.gatherers.dqn_gatherer import DQNGatherer
 
 
-class PPOLearner(Learner):
-    """A Learner for on-policy PPO agents."""
+class DQNLearner(Learner):
+    """A Learner for DQN agents."""
     def __init__(
         self,
-        agent: PPOAgent,
+        agent: DQNAgent,
         env: Env,
         num_gatherers: int,
         gather_steps_per_iteration: int,
-        train_episodes_per_iteration: int,
+        train_steps_per_iteration: int,
         minibatch_size: int,
         gradient_clip: float,
-        learning_rate: float | Sequence[float],
-        entropy_bonus: float,
-        ppo_clip: float,
+        learning_rate: float,
+        target_update_period: int,
+        buffer_size: int,
+        exploration_epsilon: float,
         project_name: Optional[str] = None,
         experiment_name: Optional[str] = None,
     ) -> None:
@@ -51,7 +49,7 @@ class PPOLearner(Learner):
         be set depending on the RL algorithm.
 
         Args:
-            agent (Agent): An RL agent which has a `forward` method and a
+            agent (Agent): An RL agent which has an `forward` method and a
                 `get_action` method.
             
             env (Env): An environment for the agent to interact with. This must
@@ -62,54 +60,46 @@ class PPOLearner(Learner):
             gather_steps_per_iteration (int): The number of steps to gather
                 from all Gatherers in a single iteration.
             
-            train_episodes_per_iteration (int): The number of episodes/epochs
-                to use for training during a single iteration.
+            train_steps_per_iteration (int): The number of steps per training
+                iteration.
             
             minibatch_size (int): The number of samples in a minibatch.
 
             gradient_clip (float): The maximum value for the gradient norm.
 
-            learning_rate (float | Sequence[float]): The learning rate for the
-                agent's optimizer. If a Sequence is given the first rate is for
-                the actor and the second is for the critic.
+            learning_rate (float): The learning rate for the agent's optimizer. 
+            
+            target_update_period (int): The number of steps before the target
+                network is updated.
+            
+            buffer_size (int): The size of the ReplayBuffer.
 
-            entropy_bonus (float): The entropy bonus multiplier hyperparameter
-                for the agent's policy.
-
-            ppo_clip (float): The clipping value for the PPO surrogate loss.
+            exploration_epsilon (float): The epsilon value for exploration.
         """
         self.agent = agent
-        self.buffer = ReplayBuffer(gather_steps_per_iteration)
+        self.buffer = ReplayBuffer(buffer_size)
         self.gather_steps_per_iteration = gather_steps_per_iteration
-        self.train_episodes_per_iteration = train_episodes_per_iteration
+        self.train_steps_per_iteration = train_steps_per_iteration
         self.minibatch_size = minibatch_size
         self.gradient_clip = gradient_clip
-        self.entropy_bonus = entropy_bonus
-        self.ppo_clip = ppo_clip
+        self.target_update_period = target_update_period
+        self.learning_rate = learning_rate
+        self.critic_loss = MSELoss()
 
         self.steps_per_gatherer = int(
             ceil(gather_steps_per_iteration / num_gatherers)
         )
-        remote_gatherer = ray.remote(num_cpus=1)(PPOGatherer)
+        remote_gatherer = ray.remote(num_cpus=1)(DQNGatherer)
         self.gatherers = [
-            remote_gatherer.remote(agent, env, self.steps_per_gatherer)
-            for _ in range(num_gatherers)
+            remote_gatherer.remote(
+                agent, env, self.steps_per_gatherer, epsilon=exploration_epsilon
+            ) for _ in range(num_gatherers)
         ]
 
-        if isinstance(learning_rate, float):
-            self.learning_rates = (learning_rate,)
-        else:
-            self.learning_rates = tuple(learning_rate)
-        self.optimizers = {
-            'actor': AdamW(
-                self.agent.actor_parameters(),
-                lr=self.learning_rates[0],
-            ),
-            'critic': AdamW(
-                self.agent.critic_parameters(),
-                lr=self.learning_rates[1 % len(self.learning_rates)],
-            ),
-        }
+        self.optimizer = AdamW(
+            self.agent.critic_parameters(),
+            lr=self.learning_rate,
+        )
 
         self.iteration = 0
         self.project_name = project_name
@@ -123,9 +113,9 @@ class PPOLearner(Learner):
 
         This method adheres to the following pattern:
         1. Update gatherers with the current agent parameters.
-        2. Gather (on-policy) experience from each gatherer in parallel.
+        2. Gather experience from each gatherer in parallel.
         3. Update the agent with the gathered experience which is stored in the
-           ReplayBuffer for `train_episodes_per_iteration` number of episodes.
+           ReplayBuffer for `train_steps_per_iteration` number of steps.
         
         Returns:
             (dict[str, Any]): A dict of training statistics.
@@ -143,14 +133,17 @@ class PPOLearner(Learner):
         self._prepare_buffer(data)
         # Learn from gathered experience
         self.agent = self.agent.train().to(self.device)
-        for episode in range(self.train_episodes_per_iteration):
+        step = 0
+        while step < self.train_steps_per_iteration:
             dataloader = self._prepare_dataloader()
             for batch in dataloader:
-                actor_loss, critic_loss = self._train_step(batch)
+                critic_loss = self._train_step(batch, step)
+                step += 1
+                # Handle early exits
+                if step >= self.train_steps_per_iteration:
+                    break
                 if self.do_logging:
-                    wandb.log(
-                        {'actor_loss': actor_loss, 'critic_loss': critic_loss}
-                    )
+                    wandb.log({'critic_loss': critic_loss})
         stats = self._format_stats(stats)
         # Record statistics
         if self.do_logging:
@@ -167,7 +160,6 @@ class PPOLearner(Learner):
         flat_data = []
         for d in data:
             flat_data.extend(self.buffer.group_data(d))
-        self.buffer.clear()
         self.buffer.add_experience(flat_data)
     
     def _prepare_dataloader(self) -> DataLoader:
@@ -180,7 +172,7 @@ class PPOLearner(Learner):
         )
         return dataloader
 
-    def _train_step(self, batch: Tensor) -> tuple[float, float]:
+    def _train_step(self, batch: Tensor, batch_num: int) -> float:
         """
         Train the agent using the gathered experience.
 
@@ -189,30 +181,28 @@ class PPOLearner(Learner):
 
         Args:
             batch (Tensor): A minibatch of experience from the ReplayBuffer.
+
+            batch_num (int): The step in the current episode.
         
         Returns:
-            actor_loss (Tensor): The loss of the actor.
-
             critic_loss (Tensor): The loss of the critic.
         """
         batch = tuple(t.to(self.agent.device()).float() for t in batch)
-        s, ac, logp, tarv, adv, ent = batch
+        s, a, r, ns, d = batch
 
-        self.optimizers['actor'].zero_grad()
-        logits = self.agent.actor_forward(s)
-        actor_loss = self._actor_loss(logits, ac, logp, adv, ent)
-        actor_loss.backward()
-        clip_grad_norm_(self.agent.actor_parameters(), self.gradient_clip)
-        self.optimizers['actor'].step()
-
-        self.optimizers['critic'].zero_grad()
-        value = self.agent.critic_forward(s)
-        critic_loss = self._critic_loss(value, tarv)
+        # Update the critic
+        self.optimizer.zero_grad()
+        q_values, target_values = self.agent(s, a, r, ns, d)
+        critic_loss = self.critic_loss(q_values, target_values)
         critic_loss.backward()
         clip_grad_norm_(self.agent.critic_parameters(), self.gradient_clip)
-        self.optimizers['critic'].step()
+        self.optimizer.step()
 
-        return actor_loss.item(), critic_loss.item()
+        # Update the target network
+        if batch_num % self.target_update_period == 0:
+            self.agent.target.load_state_dict(self.agent.critic.state_dict())
+
+        return critic_loss.item()
     
     def _format_stats(
         self,
@@ -239,56 +229,3 @@ class PPOLearner(Learner):
         combined_stats = {k: sum(v) / len(v) for k, v in combined_stats.items()}
         combined_stats['iteration'] = self.iteration
         return combined_stats
-    
-    def _actor_loss(
-        self,
-        logits: Tensor,
-        action: Tensor,
-        old_logp: Tensor,
-        advantages: Tensor,
-        entropies: Tensor,
-    ) -> Tensor:
-        """
-        Compute the clipped PPO surrogate loss.
-
-        Args:
-            logits (Tensor): The current policy's logits.
-
-            state (Tensor): The state from which the action was taken. This
-                is sampled from the ReplayBuffer.
-
-            action (Tensor): The action taken. This is sampled from the
-                ReplayBuffer.
-
-            old_logp (Tensor): The log probability of the action under the
-                previous policy. This is sampled from the ReplayBuffer.
-
-            advantages (Tensor): The advantages of the action. This is sampled
-                from the ReplayBuffer.
-
-            entropies (Tensor): The entropy of the action distribution. This is
-                sampled from the ReplayBuffer.
-        """
-        ac_dist = Categorical(logits=logits)
-        logp = ac_dist.log_prob(action)
-        # important weighting
-        ratio = exp(logp - old_logp)
-        clip_ratio = clamp(ratio, 1 - self.ppo_clip, 1 + self.ppo_clip)
-        unclipped_adv = ratio * advantages
-        clipped_adv = clip_ratio * advantages
-        loss = -1 * min(unclipped_adv, clipped_adv)
-        loss = loss - self.entropy_bonus * entropies
-        loss = loss.mean()
-        return loss
-
-    def _critic_loss(self, value: Tensor, returns: Tensor) -> Tensor:
-        """
-        The loss function for the PPOAgent's critic.
-
-        Args:
-            value (Tensor): The state values predicted by the critic.
-
-            returns (Tensor): The actual returns from the environment.
-        """
-        loss = pow((returns - value), 2).mean()
-        return loss

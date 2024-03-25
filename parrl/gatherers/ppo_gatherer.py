@@ -4,7 +4,7 @@ from typing import Sequence
 
 from gymnasium import Env
 
-from torch import tensor
+from torch import Tensor
 from torch.distributions import Categorical
 
 from parrl.agents.ppo_agent import PPOAgent
@@ -88,7 +88,7 @@ class PPOGatherer(Gatherer):
         for step in range(self.steps_per_iteration):
             # Query current policy
             s = split_complex_matrix(state)
-            s = tensor(s).cpu()
+            s = Tensor(s).cpu()
 
             logits, critic_value = self._agent(s)
             action_dist = Categorical(logits=logits)

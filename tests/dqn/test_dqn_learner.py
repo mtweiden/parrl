@@ -1,0 +1,104 @@
+from gymnasium import Env
+from gymnasium import make
+
+import ray
+
+from torch import tensor
+
+from parrl.agents.dqn_agent import DQNAgent
+from parrl.networks.mlp_encoder import MLPEncoder
+from parrl.learners.dqn_learner import DQNLearner
+
+
+def simple_env() -> Env:
+    return make('CartPole-v1')
+
+
+def simple_agent() -> DQNAgent:
+    env = simple_env()
+    input_dim = env.observation_space.shape[0]
+    num_outputs = env.action_space.n
+    dims = [64, 64]
+    encoder = MLPEncoder(input_dim, dims)
+    agent = DQNAgent(encoder, 64, num_outputs, 0.99)
+    return agent
+
+
+def default_kwargs() -> dict:
+    return {
+        'num_gatherers': 4,
+        'gather_steps_per_iteration': 500,
+        'train_steps_per_iteration': 10,
+        'minibatch_size': 32,
+        'gradient_clip': 0.5,
+        'learning_rate': 1e-3,
+        'target_update_period': 10000,
+        'buffer_size': 1_000_000,
+    }
+
+class TestDQNLearner:
+
+    def test_setup(self) -> None:
+        simple_env()
+        simple_agent()
+
+    def test_constructor(self) -> None:
+        env = simple_env()
+        agent = simple_agent()
+        kwargs = default_kwargs()
+        learner = DQNLearner(agent, env, **kwargs)
+        assert learner.agent == agent
+   
+    def test_update_parameters(self) -> None:
+        env = simple_env()
+        agent = simple_agent()
+        kwargs = default_kwargs()
+        learner = DQNLearner(agent, env, **kwargs)
+        state_dict = learner.agent.state_dict()
+        new_state_dict = {k: -1*v for k, v in state_dict.items()}
+        learner.agent.load_state_dict(new_state_dict)
+        learner._update_remote_parameters()
+        for gatherer in learner.gatherers:
+            remote_state_dict = ray.get(gatherer.get_agent.remote()).state_dict()
+            assert all(
+                (new_state_dict[k] == remote_state_dict[k]).all()
+                for k in new_state_dict
+            )
+
+    def test_train_step(self) -> None:
+        env = simple_env()
+        agent = simple_agent()
+        kwargs = default_kwargs()
+        learner = DQNLearner(agent, env, **kwargs)
+        data = ray.get(learner.gatherers[0].gather.remote())
+
+        s = tensor(data['data']['states'])
+        ac = tensor(data['data']['actions'])
+        r = tensor(data['data']['rewards'])
+        ns = tensor(data['data']['next_states'])
+        d = tensor(data['data']['dones'])
+
+        batch = (s, ac, r, ns, d)
+        c_loss = learner._train_step(batch, 0)
+
+        assert isinstance(c_loss, float)
+
+    def test_prepare_dataloader(self) -> None:
+        env = simple_env()
+        agent = simple_agent()
+        kwargs = default_kwargs()
+        learner = DQNLearner(agent, env, **kwargs)
+        data = [ray.get(learner.gatherers[0].gather.remote())['data']]
+
+        learner._prepare_buffer(data)
+        dataloader = learner._prepare_dataloader()
+        for batch in dataloader:
+            assert len(batch) == 5
+            assert len(batch[0]) == kwargs['minibatch_size']
+
+    def test_learn(self) -> None:
+        env = simple_env()
+        agent = simple_agent()
+        kwargs = default_kwargs()
+        learner = DQNLearner(agent, env, **kwargs)
+        learner.learn()

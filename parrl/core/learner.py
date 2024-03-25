@@ -1,3 +1,4 @@
+from typing import Any
 from typing import Optional 
 
 from abc import ABC
@@ -7,6 +8,7 @@ from gymnasium import Env
 
 from torch import save
 from torch import Tensor
+from torch import cuda
 
 from parrl.core.agent import Agent
 from parrl.core.buffer import ReplayBuffer
@@ -44,8 +46,8 @@ class Learner(ABC):
         be set depending on the RL algorithm.
 
         Args:
-            agent (Agent): An RL agent which has an `agent_forward` method and
-                a `get_action` method.
+            agent (Agent): An RL agent which has a `forward` method and a
+                `get_action` method.
             
             env (Env): An environment for the agent to interact with. This must
                 adhere to the gymnasium.Env interface.
@@ -59,18 +61,21 @@ class Learner(ABC):
                 to use for training during a single iteration.
             
             minibatch_size (int): The number of samples in a minibatch.
-        
-        Example:
-            self.agent = agent
-            self.buffer = ReplayBuffer(gather_steps_per_iteration)
-            self.gatherers = [
-                Gatherer.remote(agent, env)
-                for i in range(num_gatherers)
-            ]
         """
     
+    @property
+    def device(self) -> str:
+        if cuda.is_available():
+            return "cuda"
+        else:
+            return "cpu"
+    
+    def update_gatherer_env_attributes(self, kwargs: dict[str, Any]) -> None:
+        for gatherer in self.gatherers:
+            gatherer.update_env_attributes.remote(kwargs)
+
     @abstractmethod
-    def learn(self) -> None:
+    def learn(self) -> dict[str, Any]:
         """
         Run one iteration of learning with parallel gatherers.
 
@@ -78,22 +83,9 @@ class Learner(ABC):
         1. Update gatherers with the current agent parameters.
         2. Gather experience from each gatherer in parallel.
         3. Update the agent with the gathered experience.
-    
-        Here is an example implementation outline:
-        # Update gatherers for online experience gathering
-        for gatherer in self.gatheres:
-            gatherer.update_parameters.remote(self.agent.state_dict())
 
-        # Gather experience
-        results = []
-        for gatherer in self.gatherers:
-            results.append(gatherer.gather.remote())
-        futures = ray.get(results)
-        futures = [item for sublist in futures for item in sublist]
-        self.buffer.add_trajectory(futures[:self.gather_steps_per_iteration])
-
-        # Learn from gathered experience
-        for step in
+        Returns:
+            (dict[str, Any]): A dict of training statistics.
         """
     
     def save(self, path: Optional[str]) -> dict[str, Tensor]:

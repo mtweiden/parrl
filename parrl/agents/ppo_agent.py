@@ -1,6 +1,5 @@
 from typing import Any
 
-from torch import load
 from torch import nn
 from torch import no_grad
 from torch import Tensor
@@ -39,6 +38,9 @@ class PPOAgent(Agent):
     def device(self) -> str:
         return self.logit_head[0].weight.device
     
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
+        return self.agent_forward(x)
+    
     def actor_forward(self, x: Tensor) -> Tensor:
         z = self.encoder(x)
         logits = self.logit_head(z)
@@ -63,13 +65,6 @@ class PPOAgent(Agent):
         distribution = Categorical(logits=logits)
         sample = distribution.sample()
         return sample
-    
-    def load_state(self, state_path_or_dict: str | dict[str, Tensor]) -> None:
-        if isinstance(str, state_path_or_dict):
-            state_dict = load(state_path_or_dict, map_location='cpu')
-        else:
-            state_dict = state_path_or_dict
-        self.load_state_dict(state_dict)
     
     def actor_parameters(self) -> list[Tensor]:
         encoder_params = list(self.encoder.parameters())
