@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from einops import rearrange
 
+from torch import arange
 from torch import argmax
 from torch import device
 from torch.special import erf
@@ -21,7 +22,7 @@ from parrl.core.agent import Agent
 from parrl.networks.softmoe import SoftMoELayer
 
 
-class DQNAgent(Agent):
+class GaussDQNAgent(Agent):
 
     def __init__(
         self,
@@ -40,7 +41,7 @@ class DQNAgent(Agent):
         # Model architecture
         self.latent_dim = latent_dim
         self.expert_latent_dim = expert_latent_dim
-        self.num_outputs
+        self.num_outputs = num_outputs
         self.num_bins = num_bins
         self.v_min = v_min
         self.v_max = v_max
@@ -79,6 +80,8 @@ class DQNAgent(Agent):
 
             def forward(self, x: Tensor) -> Tensor:
                 z = self.encoder(x)
+                if z.ndim == 1:
+                    z = z.unsqueeze(0)
                 if self.do_softmoe:
                     z = rearrange(z, 'b (m d) -> b m d', d=expert_latent_dim)
                     z = self.softmoe(z)
@@ -91,7 +94,7 @@ class DQNAgent(Agent):
         self.target = deepcopy(self.critic)
     
     def device(self) -> device:
-        return self.critic.adv_head.weight.device
+        return self.critic.logit_head[1].weight.device
     
     def critic_parameters(self) -> list[Parameter]:
         critic_params = list(self.critic.parameters())
@@ -143,9 +146,26 @@ class DQNAgent(Agent):
             target_values = target_values.squeeze()
         return target_values
 
-    def q_value(self, state: Tensor, action: Tensor) -> Tensor:
+    def q_logits(self, state: Tensor, action: Tensor) -> Tensor:
+        """
+        Compute the vector of q_value logits for an action.
+        """
+        qa_logits = self.critic(state)
+        n = qa_logits.shape[0]
+        q_logits = qa_logits[arange(n).long(), action.long()]
+        return q_logits
+
+    def qa_values(self, state: Tensor) -> Tensor:
         """
         Compute the vector of q_values for all actions.
+        """
+        qa_logits = self.critic(state)
+        qa_values = self.from_logits(qa_logits).squeeze()
+        return qa_values
+
+    def q_value(self, state: Tensor, action: Tensor) -> Tensor:
+        """
+        Compute the vector of q_values for an action.
         """
         qa_logits = self.critic(state)
         qa_values = self.from_logits(qa_logits)
@@ -162,9 +182,9 @@ class DQNAgent(Agent):
         next_state: Tensor,
         done: Tensor,
     ) -> tuple[Tensor, Tensor]:
-        q_values = self.q_value(state, action)
+        q_logits = self.q_logits(state, action)
         target_values = self.target_value(next_state, reward, done)
-        return q_values, target_values
+        return q_logits, target_values
 
 
 class HLGaussLoss(nn.Module):
@@ -183,7 +203,8 @@ class HLGaussLoss(nn.Module):
         self.support = linspace(min_value, max_value, num_bins + 1)
 
     def forward(self, logits: Tensor, target: Tensor) -> Tensor:
-        return cross_entropy(logits, self.transform_to_probs(target))
+        probs = self.transform_to_probs(target)
+        return cross_entropy(logits, probs, reduction='none')
 
     def transform_to_probs(self, target: Tensor) -> Tensor:
         _target = self.support - target.unsqueeze(-1)
