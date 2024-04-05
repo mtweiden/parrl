@@ -46,8 +46,14 @@ class DQNAgent(Agent):
                         num_experts,
                         latent_dim // num_experts,
                     )
-                self.adv_head = nn.Linear(latent_dim, num_outputs)
-                self.val_head = nn.Linear(latent_dim, 1)
+                self.adv_head = nn.Sequential(
+                    nn.GELU(),
+                    nn.Linear(latent_dim, num_outputs),
+                )
+                self.val_head = nn.Sequential(
+                    nn.GELU(),
+                    nn.Linear(latent_dim, 1),
+                )
 
             def forward(self, x: Tensor) -> Tensor:
                 z = self.encoder(x)
