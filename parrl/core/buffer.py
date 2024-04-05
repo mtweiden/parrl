@@ -1,5 +1,4 @@
-from typing import Any
-from typing import Sequence
+from __future__ import annotations
 
 from collections import deque
 
@@ -13,6 +12,27 @@ from random import seed as random_seed
 from torch import tensor
 from torch import Tensor
 from torch.utils.data import Dataset
+
+from typing import Any
+from typing import Sequence
+
+
+class ReplayBufferDataset(Dataset):
+    """
+    A Dataset that draws data by sampling from a ReplayBuffer.
+    """
+    def __init__(
+        self,
+        buffer: ReplayBuffer,
+    ) -> None:
+        self.buffer = buffer
+
+    def __len__(self) -> int:
+        return len(self.buffer)
+    
+    def __getitem__(self, idx: int) -> tuple[Tensor, ...]:
+        sample = self.buffer.buffer[idx]
+        return sample
 
 
 class ReplayBuffer:
@@ -57,28 +77,3 @@ class ReplayBuffer:
 
     def __len__(self) -> int:
         return len(self.buffer)
-    
-    @staticmethod
-    def group_data(data_dict: dict[str, Sequence]) -> list[tuple]:
-        """Turns a dict of results into a list of experiences."""
-        data_seqs = [data_dict[key] for key in data_dict]
-        data_list = [data for data in zip(*data_seqs)]
-        return data_list
-
-
-class ReplayBufferDataset(Dataset):
-    """
-    A Dataset that draws data by sampling from a ReplayBuffer.
-    """
-    def __init__(
-        self,
-        buffer: ReplayBuffer,
-    ) -> None:
-        self.buffer = buffer
-
-    def __len__(self) -> int:
-        return len(self.buffer)
-    
-    def __getitem__(self, idx: int) -> tuple[Tensor, ...]:
-        sample = self.buffer.buffer[idx]
-        return sample
