@@ -79,6 +79,6 @@ class ReplayBufferDataset(Dataset):
     def __len__(self) -> int:
         return len(self.buffer)
     
-    def __getitem__(self, idx: int) -> tuple[Tensor]:
+    def __getitem__(self, idx: int) -> tuple[Tensor, ...]:
         sample = self.buffer.buffer[idx]
         return sample
