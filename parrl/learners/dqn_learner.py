@@ -160,7 +160,7 @@ class DQNLearner(Learner):
         flat_data = []
         for d in data:
             flat_data.extend(self.buffer.group_data(d))
-        self.buffer.add_experience(flat_data)
+        self.buffer.store(flat_data)
     
     def _prepare_dataloader(self) -> DataLoader:
         dataset = ReplayBufferDataset(self.buffer)

@@ -42,7 +42,7 @@ class ReplayBuffer:
         batch = [tensor(stack(_list)) for _list in separate_lists]
         return batch
 
-    def add_experience(self, experience: Sequence[Any]) -> None:
+    def store(self, experience: Sequence[Any]) -> None:
         for transition in experience:
             modified_transition = []
             # PyTorch wants writable arrays
@@ -59,7 +59,7 @@ class ReplayBuffer:
         return len(self.buffer)
     
     @staticmethod
-    def group_data(data_dict: dict[str: Sequence]) -> list[tuple]:
+    def group_data(data_dict: dict[str, Sequence]) -> list[tuple]:
         """Turns a dict of results into a list of experiences."""
         data_seqs = [data_dict[key] for key in data_dict]
         data_list = [data for data in zip(*data_seqs)]
