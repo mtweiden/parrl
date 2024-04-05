@@ -9,15 +9,18 @@ from numpy import ceil
 import ray
 
 from torch import Tensor
-from torch.nn import MSELoss
+from torch import pow
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
 import wandb
 
-from parrl.core.buffer import ReplayBuffer
-from parrl.core.buffer import ReplayBufferDataset
+# from parrl.core.buffer import ReplayBuffer
+# from parrl.core.buffer import ReplayBufferDataset
+from parrl.buffers.dqn_buffer import PrioritizedReplayBuffer as ReplayBuffer
+from parrl.buffers.dqn_buffer import PrioritizedReplayBufferDataset as Dataset
+from parrl.core.utils.buffer_utils import group_data
 from parrl.core.learner import Learner
 
 from parrl.agents.dqn_agent import DQNAgent
@@ -84,7 +87,6 @@ class DQNLearner(Learner):
         self.gradient_clip = gradient_clip
         self.target_update_period = target_update_period
         self.learning_rate = learning_rate
-        self.critic_loss = MSELoss()
 
         self.steps_per_gatherer = int(
             ceil(gather_steps_per_iteration / num_gatherers)
@@ -159,11 +161,12 @@ class DQNLearner(Learner):
     def _prepare_buffer(self, data: list[dict[str, Tensor]]) -> None:
         flat_data = []
         for d in data:
-            flat_data.extend(self.buffer.group_data(d))
-        self.buffer.store(flat_data)
+            flat_data.extend(group_data(d))  # type: ignore
+        for d in flat_data:
+            self.buffer.store(*d)
     
     def _prepare_dataloader(self) -> DataLoader:
-        dataset = ReplayBufferDataset(self.buffer)
+        dataset = Dataset(self.buffer)
         dataloader = DataLoader(
             dataset,
             batch_size=self.minibatch_size,
@@ -187,13 +190,15 @@ class DQNLearner(Learner):
         Returns:
             critic_loss (Tensor): The loss of the critic.
         """
-        batch = tuple(t.to(self.agent.device()).float() for t in batch)
-        s, a, r, ns, d = batch
+        batch = tuple(
+            t.to(self.agent.device()).float() for t in batch
+        )  # type: ignore
+        s, a, r, ns, d, weights = batch
 
         # Update the critic
         self.optimizer.zero_grad()
         q_values, target_values = self.agent(s, a, r, ns, d)
-        critic_loss = self.critic_loss(q_values, target_values)
+        critic_loss = self.critic_loss(q_values, target_values, weights)
         critic_loss.backward()
         clip_grad_norm_(self.agent.critic_parameters(), self.gradient_clip)
         self.optimizer.step()
@@ -203,11 +208,24 @@ class DQNLearner(Learner):
             self.agent.target.load_state_dict(self.agent.critic.state_dict())
 
         return critic_loss.item()
+
+    def critic_loss(
+        self,
+        q_values: Tensor,
+        target_values: Tensor,
+        weights: Tensor | None = None,
+    ) -> Tensor:
+        loss = pow(q_values - target_values, 2)
+        if weights is not None:
+            assert weights.shape == loss.shape
+            loss = loss * weights
+        loss = loss.mean()
+        return loss
     
     def _format_stats(
         self,
         stats: list[dict[str, float | Sequence[float]]],
-    ) -> None:
+    ) -> dict[str, Any]:
         """
         Format statistics for logging.
 

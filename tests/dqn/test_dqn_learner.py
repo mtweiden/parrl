@@ -34,6 +34,7 @@ def default_kwargs() -> dict:
         'learning_rate': 1e-3,
         'target_update_period': 10000,
         'buffer_size': 1_000_000,
+        'exploration_epsilon': 0.1,
     }
 
 class TestDQNLearner:
@@ -77,8 +78,9 @@ class TestDQNLearner:
         r = tensor(data['data']['rewards'])
         ns = tensor(data['data']['next_states'])
         d = tensor(data['data']['dones'])
+        w = tensor([1.0] * len(s))
 
-        batch = (s, ac, r, ns, d)
+        batch = (s, ac, r, ns, d, w)
         c_loss = learner._train_step(batch, 0)
 
         assert isinstance(c_loss, float)
@@ -93,7 +95,7 @@ class TestDQNLearner:
         learner._prepare_buffer(data)
         dataloader = learner._prepare_dataloader()
         for batch in dataloader:
-            assert len(batch) == 5
+            assert len(batch) == 6
             assert len(batch[0]) == kwargs['minibatch_size']
 
     def test_learn(self) -> None:
