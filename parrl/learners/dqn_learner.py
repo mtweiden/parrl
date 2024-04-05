@@ -16,10 +16,8 @@ from torch.utils.data import DataLoader
 
 import wandb
 
-# from parrl.core.buffer import ReplayBuffer
-# from parrl.core.buffer import ReplayBufferDataset
 from parrl.buffers.dqn_buffer import PrioritizedReplayBuffer as ReplayBuffer
-from parrl.buffers.dqn_buffer import PrioritizedReplayBufferDataset as Dataset
+from parrl.buffers.dqn_dataset import PrioritizedReplayDataset as Dataset
 from parrl.core.utils.buffer_utils import group_data
 from parrl.core.learner import Learner
 
@@ -170,7 +168,7 @@ class DQNLearner(Learner):
         dataloader = DataLoader(
             dataset,
             batch_size=self.minibatch_size,
-            shuffle=True,
+            # shuffle=True,  $ This is just extra work for PER
             drop_last=True,
         )
         return dataloader
@@ -193,12 +191,13 @@ class DQNLearner(Learner):
         batch = tuple(
             t.to(self.agent.device()).float() for t in batch
         )  # type: ignore
-        s, a, r, ns, d, weights = batch
+        s, a, r, ns, d, weights, indices = batch
 
         # Update the critic
         self.optimizer.zero_grad()
         q_values, target_values = self.agent(s, a, r, ns, d)
-        critic_loss = self.critic_loss(q_values, target_values, weights)
+        full_critic_loss = self.critic_loss(q_values, target_values, weights)
+        critic_loss = full_critic_loss.mean()
         critic_loss.backward()
         clip_grad_norm_(self.agent.critic_parameters(), self.gradient_clip)
         self.optimizer.step()
@@ -206,6 +205,11 @@ class DQNLearner(Learner):
         # Update the target network
         if batch_num % self.target_update_period == 0:
             self.agent.target.load_state_dict(self.agent.critic.state_dict())
+
+        # Update priorities in the ReplayBuffer
+        new_priorities = full_critic_loss.abs().detach().cpu().numpy() + 1e-6
+        indices = indices.int().tolist()
+        self.buffer.update_priorities(indices, new_priorities)
 
         return critic_loss.item()
 
@@ -219,7 +223,6 @@ class DQNLearner(Learner):
         if weights is not None:
             assert weights.shape == loss.shape
             loss = loss * weights
-        loss = loss.mean()
         return loss
     
     def _format_stats(
@@ -240,7 +243,7 @@ class DQNLearner(Learner):
                 if stat_name not in combined_stats:
                     combined_stats[stat_name] = []
                 if isinstance(gatherer_stats[stat_name], (list, tuple)):
-                    new_stats = list(gatherer_stats[stat_name])
+                    new_stats = list(gatherer_stats[stat_name])  # type: ignore
                     combined_stats[stat_name].extend(new_stats)
                 else:
                     combined_stats[stat_name].append(gatherer_stats[stat_name])

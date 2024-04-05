@@ -73,14 +73,26 @@ class TestDQNLearner:
         learner = DQNLearner(agent, env, **kwargs)
         data = ray.get(learner.gatherers[0].gather.remote())
 
-        s = tensor(data['data']['states'])
-        ac = tensor(data['data']['actions'])
-        r = tensor(data['data']['rewards'])
-        ns = tensor(data['data']['next_states'])
-        d = tensor(data['data']['dones'])
-        w = tensor([1.0] * len(s))
+        states = data['data']['states']
+        actions = data['data']['actions']
+        rewards = data['data']['rewards']
+        nstates = data['data']['next_states']
+        dones = data['data']['dones']
 
-        batch = (s, ac, r, ns, d, w)
+        # Add to replay buffer
+        for s, a, r, ns, d in zip(states, actions, rewards, nstates, dones):
+            learner.buffer.store(s, a, r, ns, d)
+
+        s, a, r, ns, d, w, i = learner.buffer.sample_batch(learner.minibatch_size)
+        s = tensor(s).float()
+        a = tensor(a).long()
+        r = tensor(r).float()
+        ns = tensor(ns).float()
+        d = tensor(d).float()
+        w = tensor(w).float()
+        i = tensor(i).long()
+        batch = s, a, r, ns, d, w, i
+        
         c_loss = learner._train_step(batch, 0)
 
         assert isinstance(c_loss, float)
@@ -95,7 +107,7 @@ class TestDQNLearner:
         learner._prepare_buffer(data)
         dataloader = learner._prepare_dataloader()
         for batch in dataloader:
-            assert len(batch) == 6
+            assert len(batch) == 7
             assert len(batch[0]) == kwargs['minibatch_size']
 
     def test_learn(self) -> None:
