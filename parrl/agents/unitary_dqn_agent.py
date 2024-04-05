@@ -14,6 +14,8 @@ class UnitaryDQNAgent(DQNAgent):
         dropout: float,
         num_outputs: int,
         discount: float,
+        num_experts: int = 0,
+        expert_latent_dim: int = 0,
     ) -> None:
         encoder = UnitaryEncoder(
             num_qubits=num_qubits,
@@ -21,10 +23,11 @@ class UnitaryDQNAgent(DQNAgent):
             nerf_dim=nerf_dim,
             dropout=dropout,
         )
-
         super().__init__(
             encoder=encoder,
             latent_dim=layer_dims[-1],
             num_outputs=num_outputs,
             discount=discount,
+            num_experts=num_experts,
+            expert_latent_dim=expert_latent_dim,
         )

@@ -1,13 +1,17 @@
+from einops import rearrange
+
 from torch import argmax
+from torch import device
 from torch import gather
 from torch import nn
 from torch import no_grad
 from torch import Tensor
-from torch import where
+from torch.nn import Parameter
 
 from copy import deepcopy
 
 from parrl.core.agent import Agent
+from parrl.networks.softmoe import SoftMoELayer
 
 
 class DQNAgent(Agent):
@@ -18,21 +22,39 @@ class DQNAgent(Agent):
         latent_dim: int,
         num_outputs: int,
         discount: float,
+        num_experts: int = 0,
+        expert_latent_dim: int = 0,
     ) -> None:
         super().__init__(discount)
 
         # Model architecture
         self.latent_dim = latent_dim
+        self.expert_latent_dim = expert_latent_dim
 
         class _Critic(nn.Module):
             def __init__(self, encoder: nn.Module) -> None:
                 super().__init__()
                 self.encoder = encoder
+                if num_experts == 0 or expert_latent_dim == 0:
+                    self.do_softmoe = False
+                else:
+                    assert latent_dim % expert_latent_dim == 0
+                    self.do_softmoe = True
+                    self.softmoe = SoftMoELayer(
+                        expert_latent_dim,
+                        expert_latent_dim,
+                        num_experts,
+                        latent_dim // num_experts,
+                    )
                 self.adv_head = nn.Linear(latent_dim, num_outputs)
                 self.val_head = nn.Linear(latent_dim, 1)
 
             def forward(self, x: Tensor) -> Tensor:
                 z = self.encoder(x)
+                if self.do_softmoe:
+                    z = rearrange(z, 'b (m d) -> b m d', d=expert_latent_dim)
+                    z = self.softmoe(z)
+                    z = rearrange(z, 'b m d -> b (m d)')
                 value = self.val_head(z)
                 advantages = self.adv_head(z)
                 adv_mean = advantages.mean(dim=-1, keepdim=True)
@@ -42,7 +64,7 @@ class DQNAgent(Agent):
         self.critic = _Critic(encoder)
         self.target = deepcopy(self.critic)
     
-    def device(self) -> str:
+    def device(self) -> device:
         return self.critic.adv_head.weight.device
     
     @no_grad
@@ -51,7 +73,7 @@ class DQNAgent(Agent):
         action = self.q_to_action(q_values)
         return action
     
-    def critic_parameters(self) -> list[Tensor]:
+    def critic_parameters(self) -> list[Parameter]:
         critic_params = list(self.critic.parameters())
         return critic_params
     
