@@ -191,6 +191,11 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         weight = weight / max_weight
         return weight
 
+    def clear(self) -> None:
+        self.buffer.clear()
+        self.min_tree.clear()
+        self.sum_tree.clear()
+
 
 class MultiStepReplayBuffer:
     """

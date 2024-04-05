@@ -10,7 +10,6 @@ from operator import add
 
 
 class SegmentTree:
-
     def __init__(
         self,
         capacity: int,
@@ -22,6 +21,9 @@ class SegmentTree:
         self._capacity = capacity
         self._value = [neutral_value for _ in range(2 * capacity)]
         self._operation = operation
+
+    def clear(self) -> None:
+        self._value.clear()
 
     def _reduce_helper(
         self,
