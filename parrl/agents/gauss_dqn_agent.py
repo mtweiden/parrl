@@ -216,6 +216,8 @@ class HLGaussLoss(nn.Module):
         return probs
 
     def transform_from_probs(self, probs: Tensor) -> Tensor:
+        if self.support.device != probs.device:
+            self.support = self.support.to(probs.device)
         centers = (self.support[:-1] + self.support[1:]) / 2
         mean = sum(probs * centers, dim=-1)
         return mean
