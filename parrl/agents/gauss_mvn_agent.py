@@ -119,6 +119,7 @@ class GaussMVNAgent(Agent):
         next_gates = argmax(q_values, dim=-1)
         return next_gates
 
+    @no_grad  # type: ignore
     def target_value(
         self,
         next_state: Tensor,
@@ -128,25 +129,28 @@ class GaussMVNAgent(Agent):
         """
         Compute the target values. The critic network is used here to do 
         double_q learning.
-        """
-        with no_grad():
-            # Target computes values
-            next_qa_logits = self.model_q_logits(self.target, next_state)
-            next_qa_values = self.from_logits(next_qa_logits)
-            # Network other than target selects values
-            d_q_logits = self.model_q_logits(self.critic, next_state)
-            double_q_critic = self.from_logits(d_q_logits)
-            next_action = self.q_to_action(double_q_critic)
-            next_action = next_action.unsqueeze(dim=-1).long()
 
-            next_q_values = gather(
-                next_qa_values, dim=1, index=next_action,
-            )
-            next_q_values = next_q_values.squeeze()
-            reward = reward.float()
-            target_values = reward + (1 - done) * self.discount * next_q_values
-            target_values = target_values.squeeze()
-        return target_values
+        TODO(Mathias): Generalize so that triple_q or quadruple_q learning can
+        be done. This can be done if the done and reward functions are deter-
+        ministic functions of only the state.
+
+        single_q_critic = self.model_q_values(self.critic, state)
+        single_q_critic = rearrange(single_q_critic, 'a n ... -> n a ...')
+        action = self.q_to_action(single_q_critic).int()
+        next_state = self.model.take_action(state, action)
+        """
+        # Network other than target selects values
+        double_q_critic = self.model_q_values(self.critic, next_state)
+        double_q_critic = rearrange(double_q_critic, 'a n ... -> n a ...')
+        next_action = self.q_to_action(double_q_critic).int()
+        next_next_state = self.model.take_action(next_state, next_action)
+
+        # Target computes values
+        next_q_value = self.target(next_next_state)
+
+        reward = reward.float()
+        target_value = reward + (1 - done) * self.discount * next_q_value
+        return target_value
 
     def q_logits(self, state: Tensor, action: Tensor) -> Tensor:
         """
