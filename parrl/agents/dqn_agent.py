@@ -71,13 +71,13 @@ class DQNAgent(Agent):
         self.target = deepcopy(self.critic)
     
     def device(self) -> device:
-        return self.critic.adv_head[1].weight.device
+        return self.critic.val_head[1].weight.device
     
     def critic_parameters(self) -> list[Parameter]:
         critic_params = list(self.critic.parameters())
         return critic_params
     
-    @no_grad
+    @no_grad  # type: ignore
     def get_action(self, x: Tensor) -> Tensor:
         q_values = self.critic(x)
         action = self.q_to_action(q_values)
