@@ -20,15 +20,15 @@ from parrl.buffers.dqn_dataset import PrioritizedReplayDataset as Dataset
 from parrl.core.utils.buffer_utils import group_data
 from parrl.core.learner import Learner
 
-from parrl.agents.gauss_mvn_agent import GaussMVNAgent
-from parrl.gatherers.gauss_mvn_gatherer import GaussMVNGatherer
+from parrl.agents.gauss_dvn_agent import GaussDVNAgent
+from parrl.gatherers.gauss_dvn_gatherer import GaussDVNGatherer
 
 
-class GaussMVNLearner(Learner):
-    """A Learner for MVN agents."""
+class GaussDVNLearner(Learner):
+    """A Learner for DVN agents."""
     def __init__(
         self,
-        agent: GaussMVNAgent,
+        agent: GaussDVNAgent,
         env: Env,
         num_gatherers: int,
         gather_steps_per_iteration: int,
@@ -88,7 +88,7 @@ class GaussMVNLearner(Learner):
         self.steps_per_gatherer = int(
             ceil(gather_steps_per_iteration / num_gatherers)
         )
-        remote_gatherer = ray.remote(num_cpus=1)(GaussMVNGatherer)
+        remote_gatherer = ray.remote(num_cpus=1)(GaussDVNGatherer)
         self.gatherers = [
             remote_gatherer.remote(
                 agent, env, self.steps_per_gatherer, epsilon=exploration_epsilon

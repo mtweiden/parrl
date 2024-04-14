@@ -21,15 +21,15 @@ from parrl.buffers.dqn_dataset import PrioritizedReplayDataset as Dataset
 from parrl.core.utils.buffer_utils import group_data
 from parrl.core.learner import Learner
 
-from parrl.agents.mvn_agent import MVNAgent
-from parrl.gatherers.mvn_gatherer import MVNGatherer
+from parrl.agents.dvn_agent import DVNAgent
+from parrl.gatherers.dvn_gatherer import DVNGatherer
 
 
-class MVNLearner(Learner):
-    """A Learner for MVN agents."""
+class DVNLearner(Learner):
+    """A Learner for DVN agents."""
     def __init__(
         self,
-        agent: MVNAgent,
+        agent: DVNAgent,
         env: Env,
         num_gatherers: int,
         gather_steps_per_iteration: int,
@@ -89,7 +89,7 @@ class MVNLearner(Learner):
         self.steps_per_gatherer = int(
             ceil(gather_steps_per_iteration / num_gatherers)
         )
-        remote_gatherer = ray.remote(num_cpus=1)(MVNGatherer)
+        remote_gatherer = ray.remote(num_cpus=1)(DVNGatherer)
         self.gatherers = [
             remote_gatherer.remote(
                 agent, env, self.steps_per_gatherer, epsilon=exploration_epsilon

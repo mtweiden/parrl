@@ -8,23 +8,23 @@ from random import choice
 
 from torch import Tensor
 
-from parrl.agents.gauss_mvn_agent import GaussMVNAgent
+from parrl.agents.gauss_dvn_agent import GaussDVNAgent
 from parrl.core.gatherer import Gatherer
 from parrl.utils.tensor_ops import split_complex_matrix
 
 
-class GaussMVNGatherer(Gatherer):
+class GaussDVNGatherer(Gatherer):
 
     def __init__(
         self,
-        agent: GaussMVNAgent,
+        agent: GaussDVNAgent,
         env: Env,
         steps_per_iteration: int,
         steps_per_episode: Optional[int] = None,
         epsilon: Optional[float] = 0.0,
     ) -> None:
         super().__init__(agent, env, steps_per_iteration, steps_per_episode)
-        assert isinstance(agent, GaussMVNAgent)
+        assert isinstance(agent, GaussDVNAgent)
         self.epsilon = epsilon
     
     def set_epsilon_for_exploration(self, epsilon: float) -> None:

@@ -20,7 +20,7 @@ from parrl.networks.softmoe import SoftMoELayer
 from parrl.utils.gauss import HLGaussLoss
 
 
-class GaussMVNAgent(Agent):
+class GaussDVNAgent(Agent):
 
     def __init__(
         self,

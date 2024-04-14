@@ -62,6 +62,7 @@ class Learner(ABC):
             
             minibatch_size (int): The number of samples in a minibatch.
         """
+        self.iteration = 0
     
     @property
     def device(self) -> str:
