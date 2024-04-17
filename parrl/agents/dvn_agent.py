@@ -17,7 +17,7 @@ from parrl.core.model import Model
 from parrl.networks.softmoe import SoftMoELayer
 
 
-class MVNAgent(Agent):
+class DVNAgent(Agent):
     """
     A Model Value Network acts like a DQN, but only learns the value of states.
 

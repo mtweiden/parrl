@@ -9,26 +9,27 @@ from numpy import ceil
 import ray
 
 from torch import Tensor
+from torch.nn import MSELoss
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
 import wandb
 
-from parrl.buffers.dqn_buffer import PrioritizedReplayBuffer as ReplayBuffer
-from parrl.buffers.dqn_dataset import PrioritizedReplayDataset as Dataset
-from parrl.core.utils.buffer_utils import group_data
+from parrl.core.buffer import ReplayBuffer
+from parrl.core.buffer import ReplayBufferDataset
 from parrl.core.learner import Learner
 
-from parrl.agents.gauss_mvn_agent import GaussMVNAgent
-from parrl.gatherers.gauss_mvn_gatherer import GaussMVNGatherer
+from parrl.agents.dqn_agent import DQNAgent
+from parrl.gatherers.dqn_gatherer import DQNGatherer
+from parrl.utils.hlgaussloss import HLGaussLoss
 
 
-class GaussMVNLearner(Learner):
-    """A Learner for MVN agents."""
+class DQNLearner(Learner):
+    """A Learner for DQN agents."""
     def __init__(
         self,
-        agent: GaussMVNAgent,
+        agent: DQNAgent,
         env: Env,
         num_gatherers: int,
         gather_steps_per_iteration: int,
@@ -39,6 +40,9 @@ class GaussMVNLearner(Learner):
         target_update_period: int,
         buffer_size: int,
         exploration_epsilon: float,
+        output_min: float,
+        output_max: float,
+        output_bins: int,
         project_name: Optional[str] = None,
         experiment_name: Optional[str] = None,
     ) -> None:
@@ -84,11 +88,17 @@ class GaussMVNLearner(Learner):
         self.gradient_clip = gradient_clip
         self.target_update_period = target_update_period
         self.learning_rate = learning_rate
+        self.critic_loss = HLGaussLoss(
+            min_value=output_min,
+            max_value=output_max,
+            num_bins=output_bins,
+            sigma=0.75 * (output_max - output_min) / output_bins,
+        )
 
         self.steps_per_gatherer = int(
             ceil(gather_steps_per_iteration / num_gatherers)
         )
-        remote_gatherer = ray.remote(num_cpus=1)(GaussMVNGatherer)
+        remote_gatherer = ray.remote(num_cpus=1)(DQNGatherer)
         self.gatherers = [
             remote_gatherer.remote(
                 agent, env, self.steps_per_gatherer, epsilon=exploration_epsilon
@@ -158,16 +168,15 @@ class GaussMVNLearner(Learner):
     def _prepare_buffer(self, data: list[dict[str, Tensor]]) -> None:
         flat_data = []
         for d in data:
-            flat_data.extend(group_data(d))  # type: ignore
-        for d in flat_data:
-            self.buffer.store(*d)
+            flat_data.extend(self.buffer.group_data(d))
+        self.buffer.add_experience(flat_data)
     
     def _prepare_dataloader(self) -> DataLoader:
-        dataset = Dataset(self.buffer)
+        dataset = ReplayBufferDataset(self.buffer)
         dataloader = DataLoader(
             dataset,
             batch_size=self.minibatch_size,
-            # shuffle=True,  $ This is just extra work for PER
+            shuffle=True,
             drop_last=True,
         )
         return dataloader
@@ -187,16 +196,13 @@ class GaussMVNLearner(Learner):
         Returns:
             critic_loss (Tensor): The loss of the critic.
         """
-        batch = tuple(
-            t.to(self.agent.device()).float() for t in batch
-        )  # type: ignore
-        s, a, r, ns, d, weights, indices = batch
+        batch = tuple(t.to(self.agent.device()).float() for t in batch)
+        s, a, r, ns, d = batch
 
         # Update the critic
         self.optimizer.zero_grad()
-        q_logits, target_values = self.agent(s, a, r, ns, d)
-        full_critic_loss = self.critic_loss(q_logits, target_values, weights)
-        critic_loss = full_critic_loss.mean()
+        logits, target_values = self.agent(s, a, r, ns, d)
+        critic_loss = self.critic_loss(logits, target_values)
         critic_loss.backward()
         clip_grad_norm_(self.agent.critic_parameters(), self.gradient_clip)
         self.optimizer.step()
@@ -205,29 +211,12 @@ class GaussMVNLearner(Learner):
         if batch_num % self.target_update_period == 0:
             self.agent.target.load_state_dict(self.agent.critic.state_dict())
 
-        # Update priorities in the ReplayBuffer
-        new_priorities = full_critic_loss.abs().detach().cpu().numpy() + 1e-6
-        indices = indices.int().tolist()
-        self.buffer.update_priorities(indices, new_priorities)
-
         return critic_loss.item()
-
-    def critic_loss(
-        self,
-        q_logits: Tensor,
-        target_values: Tensor,
-        weights: Tensor | None = None,
-    ) -> Tensor:
-        loss = self.agent.hlgauss(q_logits, target_values)
-        if weights is not None:
-            assert weights.shape == loss.shape
-            loss = loss * weights
-        return loss
     
     def _format_stats(
         self,
         stats: list[dict[str, float | Sequence[float]]],
-    ) -> dict[str, Any]:
+    ) -> None:
         """
         Format statistics for logging.
 
@@ -242,7 +231,7 @@ class GaussMVNLearner(Learner):
                 if stat_name not in combined_stats:
                     combined_stats[stat_name] = []
                 if isinstance(gatherer_stats[stat_name], (list, tuple)):
-                    new_stats = list(gatherer_stats[stat_name])  # type: ignore
+                    new_stats = list(gatherer_stats[stat_name])
                     combined_stats[stat_name].extend(new_stats)
                 else:
                     combined_stats[stat_name].append(gatherer_stats[stat_name])
