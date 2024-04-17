@@ -205,6 +205,9 @@ class GaussDVNLearner(Learner):
         if batch_num % self.target_update_period == 0:
             self.agent.target.load_state_dict(self.agent.critic.state_dict())
 
+        # Reset noisy parameters if necessary
+        self.agent.reset_noise()
+
         # Update priorities in the ReplayBuffer
         new_priorities = full_critic_loss.abs().detach().cpu().numpy() + 1e-6
         indices = indices.int().tolist()
