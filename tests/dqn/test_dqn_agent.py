@@ -59,6 +59,16 @@ def gauss_agent() -> GaussDQNAgent:
     return agent
 
 
+def noisy_agent() -> DQNAgent:
+    env = simple_env()
+    input_dim = env.observation_space.shape[0]  # type: ignore
+    num_outputs = env.action_space.n  # type: ignore
+    dims = [64, 64]
+    encoder = MLPEncoder(input_dim, dims)
+    agent = DQNAgent(encoder, 64, num_outputs, 0.99, noisy_net=True)
+    return agent
+
+
 class TestDQNAgent:
 
     def test_setup(self) -> None:
@@ -66,6 +76,7 @@ class TestDQNAgent:
         simple_agent()
         moe_agent()
         gauss_agent()
+        noisy_agent()
 
     def test_simple_critic(self) -> None:
         env = simple_env()
