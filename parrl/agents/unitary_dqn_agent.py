@@ -14,6 +14,7 @@ class UnitaryDQNAgent(DQNAgent):
         dropout: float,
         num_outputs: int,
         discount: float,
+        noisy_net: bool = False,
         num_experts: int = 0,
         expert_latent_dim: int = 0,
     ) -> None:
@@ -28,6 +29,7 @@ class UnitaryDQNAgent(DQNAgent):
             latent_dim=layer_dims[-1],
             num_outputs=num_outputs,
             discount=discount,
+            noisy_net=noisy_net,
             num_experts=num_experts,
             expert_latent_dim=expert_latent_dim,
         )

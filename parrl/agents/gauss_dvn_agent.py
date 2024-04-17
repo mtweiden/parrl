@@ -17,6 +17,7 @@ from copy import deepcopy
 from parrl.core.agent import Agent
 from parrl.core.model import Model
 from parrl.networks.softmoe import SoftMoELayer
+from parrl.networks.noisy import NoisyLinear
 from parrl.utils.gauss import HLGaussLoss
 
 
@@ -31,6 +32,7 @@ class GaussDVNAgent(Agent):
         v_min: float,
         v_max: float,
         num_bins: int,
+        noisy_net: bool = False,
         num_experts: int = 0,
         expert_latent_dim: int = 0,
     ) -> None:
@@ -43,6 +45,7 @@ class GaussDVNAgent(Agent):
         self.num_bins = num_bins
         self.v_min = v_min
         self.v_max = v_max
+        self.noisy_net = noisy_net
 
         # Hyperparameters from "Stop Regressing" paper
         zeta = (v_max - v_min) / num_bins  # bin widths
@@ -71,9 +74,14 @@ class GaussDVNAgent(Agent):
                         latent_dim // num_experts,
                     )
                 out_dim = num_bins
+                output_size = (latent_dim, out_dim)
+                if noisy_net:
+                    linear_out = NoisyLinear(*output_size)
+                else:
+                    linear_out = nn.Linear(*output_size)
                 self.logit_head = nn.Sequential(
                     nn.GELU(),
-                    nn.Linear(latent_dim, out_dim),
+                    linear_out,
                 )
 
             def forward(self, x: Tensor) -> Tensor:
@@ -179,6 +187,11 @@ class GaussDVNAgent(Agent):
         q_values = gather(qa_values, dim=1, index=q_indices)
         q_values = q_values.squeeze()
         return q_values
+
+    def reset_noise(self) -> None:
+        if self.noisy_net:
+            self.critic.adv_head[1].reset_noise()
+            self.target.adv_head[1].reset_noise()
 
     def forward(
         self,

@@ -12,6 +12,7 @@ from copy import deepcopy
 
 from parrl.core.agent import Agent
 from parrl.networks.softmoe import SoftMoELayer
+from parrl.networks.noisy import NoisyLinear
 
 
 class DQNAgent(Agent):
@@ -22,6 +23,7 @@ class DQNAgent(Agent):
         latent_dim: int,
         num_outputs: int,
         discount: float,
+        noisy_net: bool = False,
         num_experts: int = 0,
         expert_latent_dim: int = 0,
     ) -> None:
@@ -30,6 +32,7 @@ class DQNAgent(Agent):
         # Model architecture
         self.latent_dim = latent_dim
         self.expert_latent_dim = expert_latent_dim
+        self.noisy_net = noisy_net
 
         class _Critic(nn.Module):
             def __init__(self, encoder: nn.Module) -> None:
@@ -46,9 +49,14 @@ class DQNAgent(Agent):
                         num_experts,
                         latent_dim // num_experts,
                     )
+                output_size = (latent_dim, num_outputs)
+                if noisy_net:
+                    linear_out = NoisyLinear(*output_size)
+                else:
+                    linear_out = nn.Linear(*output_size)
                 self.adv_head = nn.Sequential(
                     nn.GELU(),
-                    nn.Linear(latent_dim, num_outputs),
+                    linear_out,
                 )
                 self.val_head = nn.Sequential(
                     nn.GELU(),
@@ -123,6 +131,11 @@ class DQNAgent(Agent):
         q_values = gather(qa_values, dim=1, index=q_indices)
         q_values = q_values.squeeze()
         return q_values
+
+    def reset_noise(self) -> None:
+        if self.noisy_net:
+            self.critic.adv_head[1].reset_noise()
+            self.target.adv_head[1].reset_noise()
 
     def forward(
         self,
