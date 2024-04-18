@@ -8,20 +8,25 @@ from numpy import ceil
 
 import ray
 
+import pickle
+
 from torch import Tensor
 from torch import pow
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
+from numpy import ceil
+
+from tqdm import tqdm
+
 import wandb
 
+from parrl.agents.dqn_agent import DQNAgent
 from parrl.buffers.dqn_buffer import PrioritizedReplayBuffer as ReplayBuffer
 from parrl.buffers.dqn_dataset import PrioritizedReplayDataset as Dataset
 from parrl.core.utils.buffer_utils import group_data
 from parrl.core.learner import Learner
-
-from parrl.agents.dqn_agent import DQNAgent
 from parrl.gatherers.dqn_gatherer import DQNGatherer
 
 
@@ -39,7 +44,8 @@ class DQNLearner(Learner):
         learning_rate: float,
         target_update_period: int,
         buffer_size: int,
-        exploration_epsilon: float,
+        exploration_epsilon: Optional[float] = None,
+        her_count: Optional[int] = None,
         project_name: Optional[str] = None,
         experiment_name: Optional[str] = None,
     ) -> None:
@@ -75,7 +81,19 @@ class DQNLearner(Learner):
             
             buffer_size (int): The size of the ReplayBuffer.
 
-            exploration_epsilon (float): The epsilon value for exploration.
+            exploration_epsilon (Optional[float]): The value to use for epsilon
+                greedy exploration. (Default: None)
+
+            her_count (Optional[int]): The number of alternate goals for each
+                state transition for hindsight experience replay.
+                (Default: None)
+
+            project_name (Optional[str]): If provided, determines which project
+                stats will be logged to on wandb. (Default: None)
+
+            experiment_name (Optional[str]): If provided, determines the name of
+                logged stats for wandb. (Default: None)
+
         """
         self.agent = agent
         self.buffer = ReplayBuffer(buffer_size)
@@ -85,6 +103,8 @@ class DQNLearner(Learner):
         self.gradient_clip = gradient_clip
         self.target_update_period = target_update_period
         self.learning_rate = learning_rate
+        self.exploration_epsilon = exploration_epsilon
+        self.her_count = her_count
 
         self.steps_per_gatherer = int(
             ceil(gather_steps_per_iteration / num_gatherers)
@@ -92,7 +112,11 @@ class DQNLearner(Learner):
         remote_gatherer = ray.remote(num_cpus=1)(DQNGatherer)
         self.gatherers = [
             remote_gatherer.remote(
-                agent, env, self.steps_per_gatherer, epsilon=exploration_epsilon
+                agent,
+                env,
+                self.steps_per_gatherer,
+                epsilon=exploration_epsilon,
+                her_count=her_count,
             ) for _ in range(num_gatherers)
         ]
 
@@ -106,10 +130,10 @@ class DQNLearner(Learner):
         self.experiment_name = experiment_name
         self.do_logging = project_name is not None and experiment_name is not \
             None
-    
+
     def learn(self) -> dict[str, Any]:
         """
-        Run one iteration of PPO learning with parallel gatherers.
+        Run one iteration of learning with parallel gatherers.
 
         This method adheres to the following pattern:
         1. Update gatherers with the current agent parameters.
@@ -134,22 +158,30 @@ class DQNLearner(Learner):
         # Learn from gathered experience
         self.agent = self.agent.train().to(self.device)
         step = 0
-        while step < self.train_steps_per_iteration:
-            dataloader = self._prepare_dataloader()
-            for batch in dataloader:
-                critic_loss = self._train_step(batch, step)
-                step += 1
-                # Handle early exits
-                if step >= self.train_steps_per_iteration:
-                    break
-                if self.do_logging:
-                    wandb.log({'critic_loss': critic_loss})
-        stats = self._format_stats(stats)
+        dataloader = self._prepare_dataloader()
+        pbar = tqdm(total=min(
+            self.train_steps_per_iteration,
+            int(ceil(len(self.buffer) // self.minibatch_size)),
+        ))
+        for batch in dataloader:
+            pbar.update()
+            critic_loss = self._train_step(batch, step)
+            step += 1
+            if self.do_logging:
+                wandb.log({'critic_loss': critic_loss})
+            if step >= self.train_steps_per_iteration:
+                break
+        pbar.close()
         # Record statistics
+        stats = self._format_stats(stats)
         if self.do_logging:
             wandb.log(stats)
         self.iteration += 1
         return stats
+        
+    def update_exploration_epsilon(self, new_epsilon: float) -> None:
+        for gatherer in self.gatherers:
+            gatherer.update_exploration_epsilon.remote(new_epsilon)
         
     def _update_remote_parameters(self) -> None:
         state_dict = {k: v.cpu() for k, v in self.agent.state_dict().items()}
@@ -253,3 +285,16 @@ class DQNLearner(Learner):
         combined_stats = {k: sum(v) / len(v) for k, v in combined_stats.items()}
         combined_stats['iteration'] = self.iteration
         return combined_stats
+
+    def save_buffer(self, path: str) -> None:
+        """Save the ReplayBuffer to disk."""
+        print(f'Saving buffer with length: {len(self.buffer.buffer)}')
+        with open(path, 'wb') as f:
+            pickle.dump(self.buffer, f)
+
+    def load_buffer(self, path: str) -> None:
+        """Load the ReplayBuffer from disk."""
+        print('Loading buffer...')
+        with open(path, 'rb') as f:
+            self.buffer = pickle.load(f)
+        print(f'Loaded buffer with length: {len(self.buffer.buffer)}')
