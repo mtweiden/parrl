@@ -112,8 +112,10 @@ class GaussDVNAgent(Agent):
         return self.hlgauss.transform_from_logits(logits)
 
     def model_q_logits(self, value_network: nn.Module, state: Tensor) -> Tensor:
+        n = state.shape[0]
         next_states = self.model(state)
         q_logits = value_network(next_states)
+        q_logits = rearrange(q_logits, '(n a) ... -> n a ...', n=n)
         return q_logits
     
     @no_grad  # type: ignore
@@ -134,15 +136,16 @@ class GaussDVNAgent(Agent):
         double_q learning.
         """
         # Network other than target selects action (or state in this case)
-        double_q_critic = self.model_q_values(self.critic, state)
-        double_q_critic = rearrange(double_q_critic, 'a n ... -> n a ...')
-        action = self.q_to_action(double_q_critic).int()
+        double_logits = self.model_q_logits(self.critic, state)
+        double_critic = self.from_logits(double_logits)
+        # double_q_critic = rearrange(double_q_critic, 'a n ... -> n a ...')
+        action = self.q_to_action(double_critic).int()
         next_state = self.model.take_action(state, action)
 
         # Target computes values
         # Do I even need a separate target network?
         dones = self.model.compute_dones(state)
-        rewards = self.model.compute_rewards(state)
+        rewards = self.model.compute_rewards(state, dones)
         next_q_logits = self.target(next_state)
         next_q_value = self.from_logits(next_q_logits)
         target_value = rewards + (1 - dones) * self.discount * next_q_value
