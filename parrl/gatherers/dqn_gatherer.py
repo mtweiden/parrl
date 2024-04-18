@@ -3,6 +3,8 @@ from typing import Optional
 
 from gymnasium import Env
 
+from numpy import stack
+
 from random import random
 from random import choice
 
@@ -22,10 +24,12 @@ class DQNGatherer(Gatherer):
         steps_per_iteration: int,
         steps_per_episode: Optional[int] = None,
         epsilon: Optional[float] = 0.0,
+        her_count: Optional[int] = 8,
     ) -> None:
         super().__init__(agent, env, steps_per_iteration, steps_per_episode)
         assert isinstance(agent, DQNAgent)
         self.epsilon = epsilon
+        self.her_count = her_count
     
     def set_epsilon_for_exploration(self, epsilon: float) -> None:
         if epsilon < 0.0 or epsilon > 1.0:
@@ -39,6 +43,13 @@ class DQNGatherer(Gatherer):
         rewards = []
         next_states = []
         dones = []
+
+        # For HER
+        her_states = []
+        her_actions = []
+        her_rewards = []
+        her_next_states = []
+        her_dones = []
 
         # Statistics
         ep_lens = []
@@ -56,7 +67,7 @@ class DQNGatherer(Gatherer):
 
             # Epsilon-greedy action selection
             q_values = self._agent.critic(s)
-            if random() < self.epsilon:
+            if self.epsilon is not None and random() < self.epsilon:
                 ac = choice(range(self.env.action_space.n))
             else:
                 ac = self._agent.q_to_action(q_values)
@@ -95,6 +106,23 @@ class DQNGatherer(Gatherer):
                 avg_qval = sum(ep_qvalues) / len(ep_qvalues)
                 ep_avg_qvalues.append(avg_qval)
 
+                # # Custom logic for Hindesign Experience Replay
+                # her_transitions = []
+                # for i in range(episode_step - 1):
+                #     transitions = self.env.hindsight_experience_replay(
+                #         i, self.her_count
+                #     )
+                #     her_transitions.extend(transitions)
+
+                # for s, a, r, ns, d in her_transitions:
+                #     s = stack([s.real, s.imag], axis=0)
+                #     ns = stack([ns.real, ns.imag], axis=0)
+                #     her_states.append(s)
+                #     her_actions.append(a)
+                #     her_rewards.append(r)
+                #     her_next_states.append(ns)
+                #     her_dones.append(d)
+
                 # reset
                 state, _ = self.env.reset()
                 episode_step = 0
@@ -106,6 +134,11 @@ class DQNGatherer(Gatherer):
                 avg_ep_return = sum(ep_returns) / num_episodes
                 avg_ep_qvalues = sum(ep_avg_qvalues) / num_episodes
 
+        states = states + her_states
+        actions = actions + her_actions
+        rewards = rewards + her_rewards
+        next_states = next_states + her_next_states
+        dones = dones + her_dones
         return {
             'data': {
                 'states': states,

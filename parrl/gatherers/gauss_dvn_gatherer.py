@@ -56,7 +56,7 @@ class GaussDVNGatherer(Gatherer):
 
             # Epsilon-greedy action selection
             q_values = self._agent.qa_values(s)
-            if random() < self.epsilon:
+            if self.epsilon is not None and random() < self.epsilon:
                 ac = choice(range(self.env.action_space.n))
             else:
                 ac = self._agent.q_to_action(q_values)
