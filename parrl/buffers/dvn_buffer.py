@@ -22,7 +22,7 @@ class ReplayBuffer:
         self.buffer = deque(maxlen=max_size)
         self.max_size = max_size
 
-    def store(self, s: ndarray) -> ndarray:
+    def store(self, s: ndarray) -> None:
         """
         Store a single state.
 
@@ -64,12 +64,11 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         self.min_tree = MinSegmentTree(tree_size)
         self.sum_tree = SumSegmentTree(tree_size)
 
-    def store(self, s: ndarray) -> ndarray:
-        transition = super().store(s)
+    def store(self, s: ndarray) -> None:
+        super().store(s)
         self.min_tree[self.tree_ptr] = self.max_priority ** self.alpha
         self.sum_tree[self.tree_ptr] = self.max_priority ** self.alpha
         self.tree_ptr = (self.tree_ptr + 1) % self.max_size
-        return transition
 
     def sample(self, beta: float = 0.4) -> ndarray:
         assert beta > 0
