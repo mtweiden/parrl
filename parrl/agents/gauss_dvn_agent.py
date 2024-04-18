@@ -128,36 +128,24 @@ class GaussDVNAgent(Agent):
         return next_gates
 
     @no_grad  # type: ignore
-    def target_value(
-        self,
-        next_state: Tensor,
-        reward: Tensor,
-        done: Tensor,
-    ) -> Tensor:
+    def target_value(self, state: Tensor) -> Tensor:
         """
         Compute the target values. The critic network is used here to do 
         double_q learning.
-
-        TODO(Mathias): Generalize so that triple_q or quadruple_q learning can
-        be done. This can be done if the done and reward functions are deter-
-        ministic functions of only the state.
-
-        single_q_critic = self.model_q_values(self.critic, state)
-        single_q_critic = rearrange(single_q_critic, 'a n ... -> n a ...')
-        action = self.q_to_action(single_q_critic).int()
-        next_state = self.model.take_action(state, action)
         """
-        # Network other than target selects values
-        double_q_critic = self.model_q_values(self.critic, next_state)
+        # Network other than target selects action (or state in this case)
+        double_q_critic = self.model_q_values(self.critic, state)
         double_q_critic = rearrange(double_q_critic, 'a n ... -> n a ...')
-        next_action = self.q_to_action(double_q_critic).int()
-        next_next_state = self.model.take_action(next_state, next_action)
+        action = self.q_to_action(double_q_critic).int()
+        next_state = self.model.take_action(state, action)
 
         # Target computes values
-        next_q_value = self.target(next_next_state)
-
-        reward = reward.float()
-        target_value = reward + (1 - done) * self.discount * next_q_value
+        # Do I even need a separate target network?
+        dones = self.model.compute_dones(state)
+        rewards = self.model.compute_rewards(state)
+        next_q_logits = self.target(next_state)
+        next_q_value = self.from_logits(next_q_logits)
+        target_value = rewards + (1 - dones) * self.discount * next_q_value
         return target_value
 
     def q_logits(self, state: Tensor, action: Tensor) -> Tensor:
@@ -168,6 +156,10 @@ class GaussDVNAgent(Agent):
         n = qa_logits.shape[0]
         q_logits = qa_logits[arange(n).long(), action.long()]
         return q_logits
+
+    def v_logits(self, state: Tensor) -> Tensor:
+        logits = self.critic(state)
+        return logits
 
     def qa_values(self, state: Tensor) -> Tensor:
         """
@@ -193,14 +185,7 @@ class GaussDVNAgent(Agent):
             self.critic.adv_head[1].reset_noise()
             self.target.adv_head[1].reset_noise()
 
-    def forward(
-        self,
-        state: Tensor,
-        action: Tensor,
-        reward: Tensor,
-        next_state: Tensor,
-        done: Tensor,
-    ) -> tuple[Tensor, Tensor]:
-        q_logits = self.q_logits(state, action)
-        target_values = self.target_value(next_state, reward, done)
-        return q_logits, target_values
+    def forward(self, state: Tensor) -> tuple[Tensor, Tensor]:
+        v_logits = self.v_logits(state)
+        target_values = self.target_value(state)  # type: ignore
+        return v_logits, target_values
