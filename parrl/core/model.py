@@ -1,3 +1,4 @@
+from typing import Optional
 from einops import repeat
 
 from torch import arange
@@ -9,6 +10,16 @@ class Model:
         self.num_actions = num_actions
     
     def take_action(self, state: Tensor, action: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def compute_dones(self, state: Tensor) -> Tensor:
+        raise NotImplementedError()
+
+    def compute_rewards(
+        self,
+        state: Tensor,
+        dones: Optional[Tensor] = None
+    ) -> Tensor:
         raise NotImplementedError()
 
     def take_all_actions(self, state: Tensor) -> Tensor:
