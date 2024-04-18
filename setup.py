@@ -15,6 +15,7 @@ setup(
         'torch>=2.2.0',
         'typing-extensions>=4.0.0',
         'wandb>=0.16.4',
+        'tqdm>=4.66.2'
     ],
     python_requires='>=3.11, <4',
     extras_require={
