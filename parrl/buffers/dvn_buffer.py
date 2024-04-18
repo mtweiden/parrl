@@ -70,11 +70,11 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         self.sum_tree[self.tree_ptr] = self.max_priority ** self.alpha
         self.tree_ptr = (self.tree_ptr + 1) % self.max_size
 
-    def sample(self, beta: float = 0.4) -> ndarray:
+    def sample(self, beta: float = 0.4) -> tuple[ndarray, float, int]:
         assert beta > 0
         index = self._sample_proportional(num_samples=1)[0]
-        samp = self.sample_from_index(index, beta)
-        return samp, index  # type: ignore
+        s, weight = self.sample_from_index(index, beta)
+        return s, weight, index
 
     def sample_from_index(
         self,

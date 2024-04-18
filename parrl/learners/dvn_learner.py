@@ -39,7 +39,7 @@ class DVNLearner(Learner):
         learning_rate: float,
         target_update_period: int,
         buffer_size: int,
-        exploration_epsilon: float,
+        exploration_epsilon: Optional[float] = None,
         project_name: Optional[str] = None,
         experiment_name: Optional[str] = None,
     ) -> None:
