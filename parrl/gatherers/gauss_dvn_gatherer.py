@@ -12,6 +12,9 @@ from parrl.agents.gauss_dvn_agent import GaussDVNAgent
 from parrl.core.gatherer import Gatherer
 from parrl.utils.tensor_ops import split_complex_matrix
 
+import wandb
+import time
+
 
 class GaussDVNGatherer(Gatherer):
 
@@ -45,6 +48,8 @@ class GaussDVNGatherer(Gatherer):
         ep_returns = []
         ep_qvalues = []
         ep_avg_qvalues = []
+        total_action_selection_time = 0
+        total_env_step_time = 0
 
         episode_step = 0
         self._agent.eval()
@@ -54,6 +59,7 @@ class GaussDVNGatherer(Gatherer):
             s = split_complex_matrix(state)
             s = Tensor(s).cpu()
 
+            start = time.time()
             # Epsilon-greedy action selection
             q_values = self._agent.qa_values(s)
             if self.epsilon is not None and random() < self.epsilon:
@@ -67,8 +73,12 @@ class GaussDVNGatherer(Gatherer):
             else:
                 qval = q_values[0, ac].item()
 
+            total_action_selection_time += (time.time() - start)
+
+            start = time.time()
             # Take environment step
             next_state, reward, done, trunc, _ = self.env.step(ac)
+            total_env_step_time += (time.time() - start)
 
             states.append(state)
             actions.append(ac)
@@ -118,5 +128,7 @@ class GaussDVNGatherer(Gatherer):
                 'avg_qvalue': avg_ep_qvalues,
                 'avg_ep_return': avg_ep_return,
                 'avg_ep_len': avg_ep_len,
+                'total_env_step_time': total_env_step_time,
+                'total_action_selection_time': total_action_selection_time,
             }
         }

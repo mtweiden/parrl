@@ -7,6 +7,7 @@ from gymnasium import Env
 from numpy import ceil
 
 import ray
+import time
 
 from torch import Tensor
 from torch import pow
@@ -121,12 +122,20 @@ class DVNLearner(Learner):
             (dict[str, Any]): A dict of training statistics.
         """
         # Update gatherers for online experience gathering
+        start = time.time()
+        # Update gatherers for online experience gathering
         self._update_remote_parameters()
+
+        update_time = time.time() - start
         # Gather experience
         results = []
         for gatherer in self.gatherers:
             results.append(gatherer.gather.remote())
         futures = ray.get(results)
+
+        gather_time = time.time() - update_time - start
+
+        start = time.time()
         # Put experience into the ReplayBuffer
         stats = [f['stats'] for f in futures]
         data = [f['data'] for f in futures]
@@ -144,10 +153,14 @@ class DVNLearner(Learner):
                     break
                 if self.do_logging:
                     wandb.log({'critic_loss': critic_loss})
+        train_time = time.time() - start
         stats = self._format_stats(stats)
         # Record statistics
         if self.do_logging:
             wandb.log(stats)
+            wandb.log({'update_time': update_time})
+            wandb.log({'gather_time': gather_time})
+            wandb.log({'train_time': train_time})
         self.iteration += 1
         return stats
         
