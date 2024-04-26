@@ -18,21 +18,27 @@ class ReplayBuffer:
     """
     A simple ReplayBuffer implemented with a deque.
     """
-    def __init__(self, max_size: int) -> None:
+    def __init__(
+        self,
+        max_size: int,
+        discount: float,
+        num_steps: int = 3,
+    ) -> None:
         self.buffer = deque(maxlen=max_size)
         self.max_size = max_size
+        self.discount = discount
+        self.num_steps = num_steps
 
-    def store(self, s: ndarray, d: bool, r: float) -> None:
+    def store(self, s: ndarray, r: float, d: bool) -> None:
         """
         Store a single state.
 
         Args:
             s (ndarray): Current state.
 
-            d (bool): Flag denoting whether to use bootstrapping.
+            r (float): The reward given in state s.
 
-            r (float): If d is True, regress onto this value instead of
-                doing bootstrapping.
+            d (bool): Whether s is a terminal state.
         """
         self.buffer.append((s, d, r))
 
