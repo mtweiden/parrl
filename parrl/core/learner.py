@@ -64,12 +64,12 @@ class Learner(ABC):
         """
         self.iteration = 0
     
-    @property
-    def device(self) -> str:
-        if cuda.is_available():
-            return "cuda"
-        else:
-            return "cpu"
+    # @property
+    # def device(self) -> str:
+    #     if cuda.is_available():
+    #         return "cuda"
+    #     else:
+    #         return "cpu"
     
     def update_gatherer_env_attributes(self, kwargs: dict[str, Any]) -> None:
         for gatherer in self.gatherers:
