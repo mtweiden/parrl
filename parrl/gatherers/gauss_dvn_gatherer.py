@@ -95,6 +95,9 @@ class GaussDVNGatherer(Gatherer):
                 avg_qval = sum(ep_qvalues) / len(ep_qvalues)
                 ep_avg_qvalues.append(avg_qval)
 
+                # Add final state
+                states.append(state)
+
                 # reset
                 state, _ = self.env.reset()
                 episode_step = 0
