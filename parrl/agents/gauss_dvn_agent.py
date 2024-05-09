@@ -143,13 +143,6 @@ class GaussDVNAgent(Agent):
         critic_params = list(self.critic.parameters())
         return critic_params
 
-    def critic_parameter_rrefs(self) -> list[RRef]:
-        critic_params = self.critic_parameters()
-        rref_params = []
-        for param in critic_params:
-            rref_params.append(RRef(param))
-        return rref_params
-
     def from_logits(self, logits: Tensor) -> Tensor:
         """
         Transform logits to q-values by computing the distribution's mean.
@@ -217,18 +210,6 @@ class GaussDVNAgent(Agent):
         qa_logits = self.model_q_logits(self.critic, state)
         qa_values = self.from_logits(qa_logits).squeeze()
         return qa_values
-
-    def select_action(self, state: Tensor) -> tuple[Tensor, float]:
-        q_values = self.qa_values(state)
-        ac = self.q_to_action(q_values)
-        ac = ac.item()
-
-        if q_values.ndim == 1:
-            qval = q_values[ac].item()
-        else:
-            qval = q_values[0, ac].item()
-
-        return ac, qval
 
     def _train_step(self, batch: Tensor, batch_num: int) -> float:
         """
