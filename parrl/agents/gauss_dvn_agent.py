@@ -132,18 +132,19 @@ class GaussDVNAgent(Agent):
     @no_grad  # type: ignore
     def target_value(self, state: Tensor) -> Tensor:
         """
-        Compute the target values. The critic network is used here to do 
-        double_q learning.
+        Compute the target values. 
+
+        Unlike in Double Q Learning, the target is used to select the
+        action and the value is taken from the critic network.
         """
         # Network other than target selects action (or state in this case)
         double_logits = self.model_q_logits(self.critic, state)
         double_critic = self.from_logits(double_logits)
-        # double_q_critic = rearrange(double_q_critic, 'a n ... -> n a ...')
         action = self.q_to_action(double_critic).int()
         next_state = self.model.take_action(state, action)
 
         # Target computes values
-        # Do I even need a separate target network?
+        # Do I even need a separate target network? LOL yes
         dones = self.model.compute_dones(state)
         rewards = self.model.compute_rewards(state, dones)
         next_q_logits = self.target(next_state)
