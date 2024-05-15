@@ -29,6 +29,8 @@ class HLGaussLoss(nn.Module):
         return cross_entropy(logits, probs, reduction='none')
 
     def transform_to_probs(self, target: Tensor) -> Tensor:
+        if self.support.device != target.device:
+            self.support = self.support.to(target.device)
         _target = self.support - target.unsqueeze(-1)
         _scale = (2 ** 0.5) * self.sigma
         cdf_evals = erf(_target / _scale)
