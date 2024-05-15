@@ -20,4 +20,5 @@ class Agent(nn.Module):
             state_dict = load(state_path_or_dict, map_location='cpu')
         else:
             state_dict = state_path_or_dict
+        state_dict = {k.replace('module.',''): v for (k, v) in state_dict.items()}
         self.load_state_dict(state_dict)
