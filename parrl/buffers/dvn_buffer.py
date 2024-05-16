@@ -50,10 +50,15 @@ class PrioritizedReplayBuffer(ReplayBuffer):
     """
     A ReplayBuffer that does Prioritized Experience Replay.
     """
-    def __init__(self, max_size: int, alpha: float = 0.6) -> None:
+    def __init__(
+        self,
+        max_size: int,
+        alpha: float = 0.6,
+        max_priority: float = 1.0,
+    ) -> None:
         super(PrioritizedReplayBuffer, self).__init__(max_size)
 
-        self.max_priority = 1.0
+        self.max_priority = max_priority
         self.tree_ptr = 0
         self.alpha = alpha
 
