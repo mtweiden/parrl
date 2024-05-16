@@ -226,14 +226,16 @@ class GaussDVNAgent(Agent):
         Returns:
             critic_loss (Tensor): The loss of the critic.
         """
-        batch = tuple(
-            t.to(self.gpu_rank).float() for t in batch
-        )  # type: ignore
-        s, weights, indices = batch
+        # batch = tuple(
+        #     t.to(self.gpu_rank).float() for t in batch
+        # )  # type: ignore
+        s = batch.float().to(self.gpu_rank)
+
         # Update the critic
         self.optimizer.zero_grad()
         q_logits, target_values = self(s)
-        full_critic_loss = self.critic_loss(q_logits, target_values, weights)
+        # full_critic_loss = self.critic_loss(q_logits, target_values, weights)
+        full_critic_loss = self.critic_loss(q_logits, target_values)
         critic_loss = full_critic_loss.mean()
         critic_loss.backward()
         clip_grad_norm_(self.critic_parameters(), self.gradient_clip)
@@ -243,7 +245,12 @@ class GaussDVNAgent(Agent):
         if batch_num % self.target_update_period == 0:
             self.target.load_state_dict(self.critic.state_dict())
 
-        return full_critic_loss.abs().detach().cpu().numpy(), critic_loss.item(), indices
+        # # Update priorities in the ReplayBuffer
+        # new_priorities = full_critic_loss.abs().detach().cpu().numpy() + 1e-6
+        # indices = indices.int().tolist()
+        # self.buffer.update_priorities(indices, new_priorities)
+
+        return critic_loss.item()
 
     def critic_loss(self, 
                     q_logits: Tensor, 
