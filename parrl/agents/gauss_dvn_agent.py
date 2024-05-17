@@ -111,9 +111,10 @@ class GaussDVNAgent(Agent):
                 return logits
         if gpu_rank >= 0:
             gpu_model = _Critic(encoder).to(gpu_rank)
-            self.critic = DDP(gpu_model, device_ids=[gpu_rank])
+            self.critic = DDP(gpu_model, device_ids=[gpu_rank], 
+                              output_device=gpu_rank, find_unused_parameters=True)
         else:
-            # Run critic on CPUå
+            # Run critic on CPU
             self.critic = _Critic(encoder)
         self.target = deepcopy(self.critic)
         if gpu_rank >= 0:
