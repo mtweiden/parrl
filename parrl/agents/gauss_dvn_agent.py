@@ -1,8 +1,11 @@
 """Based on: https://arxiv.org/pdf/2403.03950.pdf"""
 from __future__ import annotations
+from typing import Any, Iterator, Mapping, Sequence
 
 from einops import rearrange
+from random import random, choice
 
+from copy import deepcopy
 from torch import arange
 from torch import argmax
 from torch import device
@@ -20,7 +23,6 @@ from parrl.networks.softmoe import SoftMoELayer
 from parrl.networks.noisy import NoisyLinear
 from parrl.utils.gauss import HLGaussLoss
 
-
 class GaussDVNAgent(Agent):
 
     def __init__(
@@ -32,6 +34,7 @@ class GaussDVNAgent(Agent):
         v_min: float,
         v_max: float,
         num_bins: int,
+        gpu_rank: int = -1,
         noisy_net: bool = False,
         num_experts: int = 0,
         expert_latent_dim: int = 0,
@@ -46,7 +49,6 @@ class GaussDVNAgent(Agent):
         self.v_min = v_min
         self.v_max = v_max
         self.noisy_net = noisy_net
-
         # Hyperparameters from "Stop Regressing" paper
         zeta = (v_max - v_min) / num_bins  # bin widths
         sigma_zeta = 0.75
@@ -57,7 +59,7 @@ class GaussDVNAgent(Agent):
             num_bins=num_bins,
             sigma=sigma,
         )
-
+        self.gpu_rank = gpu_rank
         class _Critic(nn.Module):
             def __init__(self, encoder: nn.Module) -> None:
                 super().__init__()
@@ -94,13 +96,32 @@ class GaussDVNAgent(Agent):
                     z = rearrange(z, 'b m d -> b (m d)')
                 logits = self.logit_head(z)
                 return logits
-
-        self.critic = _Critic(encoder)
+        if gpu_rank >= 0:
+            gpu_model = _Critic(encoder).to(gpu_rank)
+            self.critic = gpu_model
+        else:
+            # Run critic on CPU
+            self.critic = _Critic(encoder)
         self.target = deepcopy(self.critic)
     
     def device(self) -> device:
         return self.critic.logit_head[1].weight.device
+
+    def parameters(self, recurse: bool = True) -> Iterator[Parameter]:
+        return self.critic.parameters()
     
+    def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = True, assign: bool = False):
+        state_dict = {k.removeprefix("target.").removeprefix("critic."): v.cpu() for k, v in state_dict.items()}
+        return self.target.load_state_dict(state_dict, strict, assign)
+    
+    def critic_state_dict(self, to_cpu=True):
+        if to_cpu:
+            return {k.removeprefix("module."): v.cpu() for k, v in self.critic.state_dict().items()}
+        return self.critic.state_dict()
+
+    def load_critic_state_dict(self, state_dict: Mapping[str, Any]):
+        self.critic.load_state_dict(state_dict)
+
     def critic_parameters(self) -> list[Parameter]:
         critic_params = list(self.critic.parameters())
         return critic_params
@@ -172,6 +193,17 @@ class GaussDVNAgent(Agent):
         qa_logits = self.model_q_logits(self.critic, state)
         qa_values = self.from_logits(qa_logits).squeeze()
         return qa_values
+
+    def critic_loss(self, 
+                    q_logits: Tensor, 
+                    target_values: Tensor, 
+                    weights: Tensor | None = None) -> Tensor:
+        loss = self.hlgauss(q_logits, target_values)
+        if weights is not None:
+            assert weights.shape == loss.shape
+            loss = loss * weights
+        return loss
+
 
     def q_value(self, state: Tensor, action: Tensor) -> Tensor:
         """
