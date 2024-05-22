@@ -14,14 +14,6 @@ from torch import nn
 from torch import no_grad
 from torch import Tensor
 from torch.nn import Parameter
-from torch.distributed.rpc import RRef
-import torch.optim as optim
-import torch.distributed.autograd as dist_autograd
-from torch.futures import Future
-from torch.optim import AdamW
-from torch.distributed.optim import DistributedOptimizer
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.nn.utils.clip_grad import clip_grad_norm_
 
 from copy import deepcopy
 
@@ -42,10 +34,7 @@ class GaussDVNAgent(Agent):
         v_min: float,
         v_max: float,
         num_bins: int,
-        gradient_clip:float,
-        learning_rate: float,
         gpu_rank: int = -1,
-        target_update_period: int = 10,
         noisy_net: bool = False,
         num_experts: int = 0,
         expert_latent_dim: int = 0,
@@ -60,8 +49,6 @@ class GaussDVNAgent(Agent):
         self.v_min = v_min
         self.v_max = v_max
         self.noisy_net = noisy_net
-        self.gradient_clip = gradient_clip
-        self.target_update_period = target_update_period
         # Hyperparameters from "Stop Regressing" paper
         zeta = (v_max - v_min) / num_bins  # bin widths
         sigma_zeta = 0.75
@@ -111,16 +98,11 @@ class GaussDVNAgent(Agent):
                 return logits
         if gpu_rank >= 0:
             gpu_model = _Critic(encoder).to(gpu_rank)
-            self.critic = DDP(gpu_model, device_ids=[gpu_rank], 
-                              output_device=gpu_rank, find_unused_parameters=True)
+            self.critic = gpu_model
         else:
             # Run critic on CPU
             self.critic = _Critic(encoder)
         self.target = deepcopy(self.critic)
-        if gpu_rank >= 0:
-            self.optimizer = AdamW(self.critic.parameters(), lr=learning_rate)
-        else:
-            self.optimizer = None
     
     def device(self) -> device:
         return self.critic.logit_head[1].weight.device
@@ -211,47 +193,6 @@ class GaussDVNAgent(Agent):
         qa_logits = self.model_q_logits(self.critic, state)
         qa_values = self.from_logits(qa_logits).squeeze()
         return qa_values
-
-    def _train_step(self, batch: Tensor, batch_num: int) -> float:
-        """
-        Train the agent using the gathered experience.
-
-        This method is called by the `learn` method and is responsible for
-        training the agent using the gathered experience.
-
-        Args:
-            batch (Tensor): A minibatch of experience from the ReplayBuffer.
-
-            batch_num (int): The step in the current episode.
-        
-        Returns:
-            critic_loss (Tensor): The loss of the critic.
-        """
-        # batch = tuple(
-        #     t.to(self.gpu_rank).float() for t in batch
-        # )  # type: ignore
-        s = batch.float().to(self.gpu_rank)
-
-        # Update the critic
-        self.optimizer.zero_grad()
-        q_logits, target_values = self(s)
-        # full_critic_loss = self.critic_loss(q_logits, target_values, weights)
-        full_critic_loss = self.critic_loss(q_logits, target_values)
-        critic_loss = full_critic_loss.mean()
-        critic_loss.backward()
-        clip_grad_norm_(self.critic_parameters(), self.gradient_clip)
-        self.optimizer.step()
-
-        # Update the target network
-        if batch_num % self.target_update_period == 0:
-            self.target.load_state_dict(self.critic.state_dict())
-
-        # # Update priorities in the ReplayBuffer
-        # new_priorities = full_critic_loss.abs().detach().cpu().numpy() + 1e-6
-        # indices = indices.int().tolist()
-        # self.buffer.update_priorities(indices, new_priorities)
-
-        return critic_loss.item()
 
     def critic_loss(self, 
                     q_logits: Tensor, 
